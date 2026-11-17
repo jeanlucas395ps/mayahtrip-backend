@@ -17,6 +17,11 @@ export class CodigoVerificacao {
     return new CodigoVerificacao(digitos, agora, validoPorMinutos);
   }
 
+  /** Reconstrói o código gravado, sem gerar outro. */
+  static reconstituir(valor: string, geradoEm: Date, validoPorMinutos: number): CodigoVerificacao {
+    return new CodigoVerificacao(valor, geradoEm, validoPorMinutos);
+  }
+
   estaExpirado(agora: Date): boolean {
     const expiraEm = this.geradoEm.getTime() + this.validoPorMinutos * 60_000;
     return agora.getTime() >= expiraEm;

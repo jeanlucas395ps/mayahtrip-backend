@@ -7,4 +7,5 @@ export const HASH_DE_SENHA = Symbol('HASH_DE_SENHA');
 
 export interface HashDeSenha {
   gerar(senhaPlana: string): Promise<string>;
+  conferir(senhaPlana: string, hash: string): Promise<boolean>;
 }

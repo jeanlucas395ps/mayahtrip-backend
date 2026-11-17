@@ -8,4 +8,12 @@ export class Argon2HashDeSenhaAdapter implements HashDeSenha {
   async gerar(senhaPlana: string): Promise<string> {
     return argon2.hash(senhaPlana, { type: argon2.argon2id });
   }
+
+  async conferir(senhaPlana: string, hash: string): Promise<boolean> {
+    if (!hash.startsWith('$argon2')) {
+      return false;
+    }
+
+    return argon2.verify(hash, senhaPlana);
+  }
 }
