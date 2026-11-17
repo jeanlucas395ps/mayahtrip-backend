@@ -71,7 +71,7 @@ export class AuthController {
       return { mensagem: mensagem('confirmada', locale) };
     }
 
-    if (resultado.tipo === 'bloqueada') {
+    if (resultado.tipo === 'bloqueada' || resultado.tentativasRestantes === 0) {
       throw new HttpException({ message: mensagem('bloqueada', locale), tentativasRestantes: 0 }, HttpStatus.BAD_REQUEST);
     }
 
