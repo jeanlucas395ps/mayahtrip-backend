@@ -23,6 +23,20 @@ export class MetricsService {
     registers: [this.registry],
   });
 
+  /** 048-rate-limit-api: rejeição do guard único, sem id de usuário no rótulo. */
+  readonly rejeicoesPorLimite = new Counter({
+    name: 'http_rate_limit_rejections_total',
+    help: 'Requisições rejeitadas pelo guard único de limite de taxa.',
+    registers: [this.registry],
+  });
+
+  /** 044-sign-in-api D-7: access token recusado porque o jti está no Redis. */
+  readonly rejeicoesPorRevogacao = new Counter({
+    name: 'auth_revogacao_rejeicoes_total',
+    help: 'Access tokens recusados pela lista de revogação.',
+    registers: [this.registry],
+  });
+
   observeRequest(method: string, route: string, statusCode: number, durationSeconds: number): void {
     const labels = { method, route, status_code: String(statusCode) };
     this.httpRequestDuration.observe(labels, durationSeconds);
