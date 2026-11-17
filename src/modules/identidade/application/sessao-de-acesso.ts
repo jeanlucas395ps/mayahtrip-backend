@@ -28,7 +28,7 @@ export class SessaoDeAcesso {
     @Inject(authConfig.KEY) private readonly config: ConfigType<typeof authConfig>,
   ) {}
 
-  async emitir(contaId: string, manterConectado: boolean, familiaId = randomUUID()): Promise<ParDeTokens> {
+  async emitir(contaId: string, manterConectado: boolean, familiaId: string = randomUUID()): Promise<ParDeTokens> {
     const refreshToken = randomBytes(32).toString('base64url');
     const accessJti = randomUUID();
     const agora = this.relogio.agora();
