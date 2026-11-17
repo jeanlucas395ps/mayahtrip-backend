@@ -1,0 +1,30 @@
+# Dependências e build
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+*.lcov
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Segredos. O exemplo versionado continua.
+.env
+.env.*
+!.env.example
+
+# Cache e sistema
+.cache/
+.eslintcache
+.DS_Store
+Thumbs.db
+
+# Editores
+.idea/
+.vscode/

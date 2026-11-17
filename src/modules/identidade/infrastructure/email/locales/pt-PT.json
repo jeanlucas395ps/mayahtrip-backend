@@ -1,0 +1,6 @@
+{
+  "codigoVerificacao": {
+    "assunto": "O seu código de verificação MayahTrip",
+    "corpo": "Olá, {{nome}}! O seu código de verificação é {{codigo}}. É válido por {{minutos}} minutos."
+  }
+}
