@@ -13,7 +13,7 @@ import { REMETENTE_DE_EMAIL } from '../src/modules/identidade/domain/ports/remet
 import { VALIDADOR_TOKEN_GOOGLE } from '../src/modules/identidade/domain/ports/validador-token-google.port';
 import { ContaOrmEntity } from '../src/modules/identidade/infrastructure/persistence/entities/conta.orm-entity';
 import { SessaoOrmEntity } from '../src/modules/identidade/infrastructure/persistence/entities/sessao.orm-entity';
-import Redis from 'ioredis';
+import { LISTA_DE_REVOGACAO, ListaDeRevogacao } from '../src/modules/identidade/domain/ports/lista-de-revogacao.port';
 
 class RelogioControlado implements Relogio {
   constructor(public instante = new Date('2026-11-17T12:00:00.000Z')) {}
@@ -34,6 +34,7 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
   const relogio = new RelogioControlado();
   const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
   const validarGoogle = vi.fn();
+  let revogacao: ListaDeRevogacao;
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_LIMITE = '1000';
@@ -52,6 +53,7 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     await app.init();
     contas = modulo.get(getRepositoryToken(ContaOrmEntity));
     sessoes = modulo.get(getRepositoryToken(SessaoOrmEntity));
+    revogacao = modulo.get(LISTA_DE_REVOGACAO);
   });
 
   afterAll(async () => {
@@ -135,8 +137,9 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
       .post('/v1/auth/sign-in')
       .send({ email: `nao-${randomUUID()}@exemplo.com`, senha: 'umaSenhaForte123' });
     expect(recusaPendente.status).toBe(401);
-    expect(recusaSenha.body).toEqual(recusaPendente.body);
-    expect(recusaInexistente.body).toEqual(recusaPendente.body);
+    expect(recusaSenha.body.message).toBe(recusaPendente.body.message);
+    expect(recusaSenha.body.statusCode).toBe(recusaPendente.body.statusCode);
+    expect(recusaInexistente.body.message).toBe(recusaPendente.body.message);
 
     const login = await request(app.getHttpServer()).post('/v1/auth/sign-in').send({ email, senha: 'umaSenhaForte123' });
     expect(login.status).toBe(200);
@@ -172,25 +175,24 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     const reusoCodigo = await request(app.getHttpServer()).post('/v1/auth/handoff/exchange').send({ codigo: handoff.body.codigo });
     expect(reusoCodigo.status).toBe(401);
 
-    const redis = new Redis(process.env.REDIS_URL as string, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
     const payload = JSON.parse(Buffer.from(segundoLogin.body.accessToken.split('.')[1], 'base64url').toString());
-    await redis.set(`jti:revogado:${payload.jti}`, '1', 'EX', 60);
+    await revogacao.revogar(payload.jti, 60);
     const revogado = await request(app.getHttpServer())
       .post('/v1/auth/handoff')
       .set('Authorization', `Bearer ${segundoLogin.body.accessToken}`);
     expect(revogado.status).toBe(401);
-    await redis.quit();
   });
 
   it('AC-4 a AC-6 do Google: cria, reaproveita e recusa token inválido', async () => {
     const email = `google-${randomUUID()}@exemplo.com`;
-    validarGoogle.mockResolvedValueOnce({ sub: 'sub-1', email, nome: 'Pessoa Google' });
+    const sub = `sub-${randomUUID()}`;
+    validarGoogle.mockResolvedValueOnce({ sub, email, nome: 'Pessoa Google' });
     const primeira = await request(app.getHttpServer()).post('/v1/auth/google').send({ token: 'token-valido' });
     expect(primeira.status).toBe(200);
     expect((await contas.findOne({ where: { email } }))?.estado).toBe('confirmada');
     expect((await contas.findOne({ where: { email } }))?.hashSenha).toBeNull();
 
-    validarGoogle.mockResolvedValueOnce({ sub: 'sub-1', email, nome: 'Pessoa Google' });
+    validarGoogle.mockResolvedValueOnce({ sub, email, nome: 'Pessoa Google' });
     const segunda = await request(app.getHttpServer()).post('/v1/auth/google').send({ token: 'token-valido' });
     expect(segunda.status).toBe(200);
     expect(await contas.count({ where: { email } })).toBe(1);

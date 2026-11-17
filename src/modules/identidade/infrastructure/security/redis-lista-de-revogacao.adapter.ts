@@ -10,6 +10,7 @@ export class RedisListaDeRevogacao implements ListaDeRevogacao, OnModuleDestroy 
 
   constructor(@Inject(redisConfig.KEY) config: ConfigType<typeof redisConfig>) {
     this.cliente = new Redis(config.url, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
+    this.cliente.on('error', () => undefined);
   }
 
   async revogar(jti: string, ttlSegundos: number): Promise<void> {
@@ -26,7 +27,7 @@ export class RedisListaDeRevogacao implements ListaDeRevogacao, OnModuleDestroy 
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.cliente.quit();
+    this.cliente.disconnect();
   }
 }
 

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService, ConfigType } from '@nestjs/config';
@@ -41,7 +42,15 @@ import { IdentidadeModule } from './modules/identidade/identidade.module';
     ThrottlerModule.forRootAsync({
       inject: [rateLimitConfig.KEY],
       useFactory: (config: ConfigType<typeof rateLimitConfig>) => [
-        { ttl: config.janelaMs, limit: config.limite },
+        {
+          ttl: config.janelaMs,
+          limit: config.limite,
+          // Um contador para a API inteira. A chave continua a do
+          // cliente que a biblioteca já usa; o produto ainda não fechou
+          // se é IP, conta ou token.
+          generateKey: (_context: unknown, suffix: string, name: string) =>
+            createHash('sha256').update(`${name}:${suffix}`).digest('hex'),
+        },
       ],
     }),
     MetricsModule,
