@@ -143,6 +143,15 @@ export class Conta {
   }
 
   /**
+   * O provedor já provou o e-mail. A conta pendente do mesmo e-mail
+   * passa a confirmada em vez de nascer uma segunda linha.
+   */
+  confirmarPorGoogle(googleSub: string): void {
+    this.vincularGoogle(googleSub);
+    this.estadoInterno = 'confirmada';
+  }
+
+  /**
    * 043: a 6ª tentativa não olha o código. Código expirado conta como
    * errado. O acerto na 5ª tentativa ainda confirma.
    */
