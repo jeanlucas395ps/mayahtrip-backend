@@ -31,6 +31,7 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
 
   beforeAll(async () => {
     process.env.SIGN_UP_RATE_LIMIT_PER_MINUTE = '1000';
+    process.env.RATE_LIMIT_LIMITE = '1000';
 
     const moduloDeTeste = await Test.createTestingModule({
       imports: [AppModule],

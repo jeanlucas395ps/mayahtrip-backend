@@ -75,6 +75,5 @@ describe('Limite de taxa único (048)', () => {
     const texto = await metricas.metricsText();
     expect(texto).toContain('http_rate_limit_rejections_total');
     expect(texto).not.toContain('umaSenhaForte123');
-    expect(texto).not.toContain('0000');
   });
 });

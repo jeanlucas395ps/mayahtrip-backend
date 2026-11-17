@@ -2,10 +2,10 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { authConfig } from '../../../../config/auth.config';
-import { RELOGIO, Relogio } from '../../domain/ports/relogio.port';
-import { LISTA_DE_REVOGACAO, ListaDeRevogacao } from '../../domain/ports/lista-de-revogacao.port';
-import { SESSAO_REPOSITORIO, SessaoGravada, SessaoRepositorio } from '../../domain/ports/sessao-repositorio.port';
+import { authConfig } from '../../../config/auth.config';
+import { RELOGIO, Relogio } from '../domain/ports/relogio.port';
+import { LISTA_DE_REVOGACAO, ListaDeRevogacao } from '../domain/ports/lista-de-revogacao.port';
+import { SESSAO_REPOSITORIO, SessaoGravada, SessaoRepositorio } from '../domain/ports/sessao-repositorio.port';
 
 export interface ParDeTokens {
   accessToken: string;

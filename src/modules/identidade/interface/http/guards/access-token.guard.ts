@@ -1,8 +1,8 @@
 import { CanActivate, ExecutionContext, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { MetricsService } from '../../../../common/logging/metrics.service';
-import { LISTA_DE_REVOGACAO, ListaDeRevogacao } from '../../domain/ports/lista-de-revogacao.port';
+import { MetricsService } from '../../../../../common/logging/metrics.service';
+import { LISTA_DE_REVOGACAO, ListaDeRevogacao } from '../../../domain/ports/lista-de-revogacao.port';
 
 export interface RequestComConta extends Request {
   contaId: string;

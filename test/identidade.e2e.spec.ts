@@ -93,13 +93,18 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     expect((await contas.findOne({ where: { email: outro.email } }))?.estado).toBe('pendente');
   });
 
-  it('AC-4 e AC-6: código vencido consome tentativa; reenvio antes de 30 s é recusado e depois zera', async () => {
+  it('AC-4: código vencido consome uma tentativa', async () => {
     const { email, codigo } = await cadastrar();
     relogio.avancar(10 * 60_000 + 1);
     const vencido = await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo });
     expect(vencido.status).toBe(400);
     expect((await contas.findOne({ where: { email } }))?.tentativasCodigo).toBe(1);
     expect((await contas.findOne({ where: { email } }))?.estado).toBe('pendente');
+  });
+
+  it('AC-5 e AC-6: reenvio antes de 30 s é recusado e no limite zera as tentativas', async () => {
+    const { email, codigo } = await cadastrar();
+    await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo: '0000' });
 
     const cedo = await request(app.getHttpServer()).post('/v1/auth/resend-code').send({ email, idioma: 'en' });
     expect(cedo.status).toBe(400);
@@ -110,7 +115,9 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     const linha = await contas.findOne({ where: { email } });
     expect(linha?.tentativasCodigo).toBe(0);
     expect(linha?.codigoVerificacao).not.toBe(codigo);
-    expect(enviarCodigoDeVerificacao).toHaveBeenCalledWith(expect.objectContaining({ paraEmail: email, idioma: expect.objectContaining({ valor: 'en' }) }));
+    expect(enviarCodigoDeVerificacao).toHaveBeenCalledWith(
+      expect.objectContaining({ paraEmail: email, idioma: expect.objectContaining({ valor: 'en' }) }),
+    );
   });
 
   it('AC-1 a AC-3 e AC-9 a AC-13 do login, mais o handoff', async () => {
