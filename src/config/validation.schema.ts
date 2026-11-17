@@ -24,6 +24,15 @@ export const validationSchema = Joi.object({
   SIGN_UP_CODE_TTL_MINUTES: Joi.number().default(10),
   SIGN_UP_RATE_LIMIT_PER_MINUTE: Joi.number().default(5),
 
+  // Teto do guard único. O número de produto continua em aberto.
+  // 120/60000 é o valor que o processo já usava.
+  RATE_LIMIT_LIMITE: Joi.number().default(120),
+  RATE_LIMIT_JANELA_MS: Joi.number().default(60_000),
+
+  REFRESH_TTL_MANTER_CONECTADO_SEGUNDOS: Joi.number().default(30 * 24 * 60 * 60),
+  REFRESH_TTL_SEM_MANTER_CONECTADO_SEGUNDOS: Joi.number().default(24 * 60 * 60),
+  HANDOFF_TTL_SEGUNDOS: Joi.number().default(60),
+
   // Nome usado pela documentação do ReadMe. Vazio não publica.
   README_API_KEY: Joi.string().allow('').optional(),
 });

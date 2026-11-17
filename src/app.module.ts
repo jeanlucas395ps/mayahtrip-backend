@@ -1,13 +1,15 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService, ConfigType } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { appConfig } from './config/app.config';
 import { authConfig } from './config/auth.config';
 import { databaseConfig, DatabaseConfig } from './config/database.config';
 import { emailConfig } from './config/email.config';
+import { rateLimitConfig } from './config/rate-limit.config';
 import { readmeConfig } from './config/readme.config';
+import { redisConfig } from './config/redis.config';
 import { signUpConfig } from './config/sign-up.config';
 import { validationSchema } from './config/validation.schema';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -20,7 +22,7 @@ import { IdentidadeModule } from './modules/identidade/identidade.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, authConfig, emailConfig, signUpConfig, readmeConfig],
+      load: [appConfig, databaseConfig, authConfig, emailConfig, signUpConfig, readmeConfig, redisConfig, rateLimitConfig],
       validationSchema,
     }),
     TypeOrmModule.forRootAsync({
@@ -36,16 +38,19 @@ import { IdentidadeModule } from './modules/identidade/identidade.module';
         migrationsRun: false,
       }),
     }),
-    // security-rate-limiting (nestjs-best-practices): limite geral; cada
-    // endpoint sensível sobrescreve com @Throttle (ex.: sign-up-api D-3).
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    ThrottlerModule.forRootAsync({
+      inject: [rateLimitConfig.KEY],
+      useFactory: (config: ConfigType<typeof rateLimitConfig>) => [
+        { ttl: config.janelaMs, limit: config.limite },
+      ],
+    }),
     MetricsModule,
     IdentidadeModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
-    // Sem isto, @Throttle é só metadado sem efeito (AC-9, 042-sign-up-api.md).
+    // 048: um único guard. Nenhuma rota registra o próprio limite.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

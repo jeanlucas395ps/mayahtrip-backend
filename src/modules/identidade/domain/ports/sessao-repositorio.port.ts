@@ -6,6 +6,7 @@ export interface SessaoGravada {
   familiaId: string;
   hashRefresh: string;
   accessJti: string;
+  manterConectado: boolean;
   expiraEm: Date;
   consumidaEm: Date | null;
   revogada: boolean;
