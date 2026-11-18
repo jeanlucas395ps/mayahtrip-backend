@@ -572,6 +572,26 @@ async function gravarParticipantes(
       [viagemId, proximo()],
     );
   }
+  await copiarMala(tx, viagemId);
+}
+
+async function copiarMala(tx: { query: DataSource['query'] }, viagemId: string, participanteId?: string): Promise<void> {
+  await tx.query(
+    `INSERT INTO organization.trip_packing_items (trip_id, participant_id, catalog_item_id, category_id, name)
+     SELECT pessoa.trip_id, pessoa.id, item.id, item.category_id, item.name
+     FROM travel.trip_participants pessoa
+     JOIN organization.packing_catalog_items item ON item.is_default
+     JOIN organization.packing_categories categoria ON categoria.id = item.category_id AND categoria.is_active
+     WHERE pessoa.trip_id = $1
+       AND ($2::uuid IS NULL OR pessoa.id = $2::uuid)
+       AND NOT EXISTS (
+         SELECT 1 FROM organization.trip_packing_items existente
+         WHERE existente.participant_id = pessoa.id
+           AND existente.catalog_item_id = item.id
+           AND existente.deleted_at IS NULL
+       )`,
+    [viagemId, participanteId ?? null],
+  );
 }
 
 async function copiarRoteiro(tx: { query: DataSource['query'] }, origemId: string, novoId: string, userId: string): Promise<void> {
@@ -736,6 +756,7 @@ async function gravarConvites(
        RETURNING id`,
       [viagemId, nome, convite.role],
     );
+    await copiarMala(tx, viagemId, pessoas[0].id);
     const convitesGravados = await tx.query<{ id: string }[]>(
       `INSERT INTO travel.trip_invitations (
          trip_id, participant_id, invited_by_user_id, invited_email, invited_user_id, channel, role
