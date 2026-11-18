@@ -3,7 +3,9 @@ import {
   DeslocamentoNovo,
   DiaNovo,
   FalhaRoteiro,
+  GeracaoLida,
   ParadaNova,
+  PedidoDeGeracao,
   ROTEIRO,
   RoteiroLido,
   RoteiroRepositorio,
@@ -36,5 +38,9 @@ export class RoteiroUseCase {
 
   marcarFeito(userId: string, viagemId: string, paradaId: string, feito: boolean): Promise<RoteiroLido | FalhaRoteiro> {
     return this.roteiros.marcarFeito(userId, viagemId, paradaId, feito);
+  }
+
+  gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao): Promise<GeracaoLida | FalhaRoteiro> {
+    return this.roteiros.gerar(userId, viagemId, pedido);
   }
 }

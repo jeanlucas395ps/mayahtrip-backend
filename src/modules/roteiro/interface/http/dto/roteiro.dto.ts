@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class DiaDto {
   @Type(() => Number)
@@ -42,6 +42,20 @@ export class ParadaDto {
   @IsInt()
   @Min(1)
   durationMinutes?: number;
+}
+
+export class GerarDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  interests?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  pace?: string;
 }
 
 export class DeslocamentoDto {

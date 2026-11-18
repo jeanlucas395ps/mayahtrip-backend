@@ -103,6 +103,42 @@ describe('Roteiro (e2e, Postgres real)', () => {
     expect(desfeito.body.days[0].stops[0].done).toBe(false);
     expect((await dados.query<{ completed_at: Date | null }[]>(`SELECT completed_at FROM itinerary.itinerary_stops WHERE id = $1`, [parada.body.days[0].stops[0].id]))[0].completed_at).toBeNull();
   });
+
+  it('gera os dias vazios até 14 e recusa a viagem mais longa', async () => {
+    const dono = await entrar(app, enviarCodigoDeVerificacao, dados);
+    const auth = { Authorization: `Bearer ${dono.access}` };
+    const marca = randomUUID().slice(0, 8);
+    const paisId = randomUUID();
+    const cidadeId = randomUUID();
+    await dados.query(`INSERT INTO geography.countries (id, name) VALUES ($1, $2)`, [paisId, `Pais ${marca}`]);
+    await dados.query(`INSERT INTO geography.cities (id, country_id, name) VALUES ($1, $2, $3)`, [cidadeId, paisId, `Cidade ${marca}`]);
+    const hoje = String((await dados.query<{ hoje: string }[]>(`SELECT CURRENT_DATE::text AS hoje`))[0].hoje).slice(0, 10);
+    const curta = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({ title: `Curta ${marca}`, startDate: somar(hoje, 2), endDate: somar(hoje, 4), startMode: 'suggested', destinations: [{ cityId: cidadeId }] });
+    const gerada = await request(app.getHttpServer()).post(`/v1/trips/${curta.body.id}/itinerary/generate`).set(auth).send({ interests: ['museu'], pace: 'leve' });
+    expect(gerada.status).toBe(202);
+    const lido = await dados.query<{ event_type: string; dias: string; paradas: string; filled: string }[]>(
+      `SELECT o.event_type,
+              (SELECT count(*)::text FROM itinerary.itinerary_days d WHERE d.itinerary_id = r.itinerary_id) AS dias,
+              (SELECT count(*)::text FROM itinerary.itinerary_stops s JOIN itinerary.itinerary_days d ON d.id = s.itinerary_day_id WHERE d.itinerary_id = r.itinerary_id) AS paradas,
+              r.result_data->>'filledBy' AS filled
+       FROM itinerary.itinerary_generation_results r
+       JOIN itinerary.itinerary_generation_jobs j ON j.id = r.job_id
+       JOIN platform.outbox_events o ON o.aggregate_id = j.id
+       WHERE j.id = $1`,
+      [gerada.body.jobId],
+    );
+    expect(lido[0]).toEqual({ event_type: 'itinerary_generation_requested', dias: '3', paradas: '0', filled: 'none' });
+    const longa = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({ title: `Longa ${marca}`, startDate: somar(hoje, 2), endDate: somar(hoje, 16), startMode: 'from_scratch', destinations: [{ cityId: cidadeId }] });
+    const recusa = await request(app.getHttpServer()).post(`/v1/trips/${longa.body.id}/itinerary/generate`).set(auth).send({});
+    expect(recusa.body.message).toBe('Viagens com mais de 14 dias não geram roteiro automático.');
+    expect((await dados.query<{ id: string }[]>(`SELECT id FROM itinerary.itinerary_generation_jobs WHERE trip_id = $1`, [longa.body.id])).length).toBe(0);
+  });
 });
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>, dados: DataSource): Promise<{ access: string; userId: string }> {

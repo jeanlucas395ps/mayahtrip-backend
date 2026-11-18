@@ -8,8 +8,10 @@ import {
   DiaLido,
   DiaNovo,
   FalhaRoteiro,
+  GeracaoLida,
   ParadaLida,
   ParadaNova,
+  PedidoDeGeracao,
   RoteiroLido,
   RoteiroRepositorio,
 } from '../../domain/roteiro.port';
@@ -114,6 +116,39 @@ export class RoteiroPgRepositorio implements RoteiroRepositorio {
     return this.montar(viagemId);
   }
 
+  async gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao): Promise<GeracaoLida | FalhaRoteiro> {
+    const edicao = await this.podeEditar(viagemId, userId);
+    if (edicao !== 'ok') return edicao;
+    return this.dados.transaction(async (tx) => {
+      const viagens = await tx.query<{ dias: number; start_date: string | null }[]>(
+        `SELECT CASE WHEN start_date IS NOT NULL THEN (end_date - start_date + 1) ELSE duration_days END AS dias,
+                start_date::text AS start_date
+         FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
+        [viagemId],
+      );
+      if (viagens.length === 0) return 'ausente';
+      if (Number(viagens[0].dias) > 14) return 'longa';
+      const entrada = { interests: pedido.interests ?? [], pace: pedido.pace ?? null };
+      const jobs = await tx.query<{ id: string }[]>(
+        `INSERT INTO itinerary.itinerary_generation_jobs (trip_id, requested_by_user_id, status, input_data, started_at, finished_at)
+         VALUES ($1, $2, 'completed', $3::jsonb, clock_timestamp(), clock_timestamp()) RETURNING id`,
+        [viagemId, userId, JSON.stringify(entrada)],
+      );
+      const roteiroId = await garantirDias(tx, viagemId, userId, Number(viagens[0].dias), viagens[0].start_date);
+      await tx.query(
+        `INSERT INTO itinerary.itinerary_generation_results (job_id, itinerary_id, result_data)
+         VALUES ($1, $2, $3::jsonb)`,
+        [jobs[0].id, roteiroId, JSON.stringify({ filledBy: 'none' })],
+      );
+      await tx.query(
+        `INSERT INTO platform.outbox_events (aggregate_type, aggregate_id, event_type, payload)
+         VALUES ('itinerary_generation_job', $1, 'itinerary_generation_requested', $2::jsonb)`,
+        [jobs[0].id, JSON.stringify({ tripId: viagemId, itineraryId: roteiroId })],
+      );
+      return { jobId: jobs[0].id, status: 'completed', itineraryId: roteiroId };
+    });
+  }
+
   private async podeEditar(viagemId: string, userId: string): Promise<'ok' | 'ausente' | 'semEdicao'> {
     const acesso = await this.acesso(viagemId, userId);
     if (!acesso) return 'ausente';
@@ -170,6 +205,32 @@ export class RoteiroPgRepositorio implements RoteiroRepositorio {
     }));
     return { id: roteiros[0].id, days };
   }
+}
+
+async function garantirDias(
+  tx: { query: DataSource['query'] },
+  viagemId: string,
+  userId: string,
+  dias: number,
+  inicio: string | null,
+): Promise<string> {
+  const roteiroId = await garantirRoteiro(tx, viagemId, userId);
+  const existentes = await tx.query<{ total: string }[]>(`SELECT count(*)::text AS total FROM itinerary.itinerary_days WHERE itinerary_id = $1`, [roteiroId]);
+  if (Number(existentes[0].total) > 0) return roteiroId;
+  for (let dia = 1; dia <= dias; dia += 1) {
+    const data = inicio ? somarData(inicio, dia - 1) : null;
+    await tx.query(
+      `INSERT INTO itinerary.itinerary_days (itinerary_id, day_number, date, title, sort_order) VALUES ($1, $2, $3, $4, $2)`,
+      [roteiroId, dia, data, `Dia ${dia}`],
+    );
+  }
+  return roteiroId;
+}
+
+function somarData(iso: string, dias: number): string {
+  const data = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  data.setUTCDate(data.getUTCDate() + dias);
+  return data.toISOString().slice(0, 10);
 }
 
 async function garantirRoteiro(tx: { query: DataSource['query'] }, viagemId: string, userId: string): Promise<string> {

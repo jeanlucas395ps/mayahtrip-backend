@@ -2,8 +2,8 @@ import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Inj
 import { ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard, RequestComConta } from '../../../identidade/interface/http/guards/access-token.guard';
 import { RoteiroUseCase } from '../../application/roteiro.use-case';
-import { FalhaRoteiro, RoteiroLido } from '../../domain/roteiro.port';
-import { DeslocamentoDto, DiaDto, ParadaDto } from './dto/roteiro.dto';
+import { FalhaRoteiro, GeracaoLida, RoteiroLido } from '../../domain/roteiro.port';
+import { DeslocamentoDto, DiaDto, GerarDto, ParadaDto } from './dto/roteiro.dto';
 
 @ApiTags('trips')
 @Controller('trips/:id/itinerary')
@@ -44,6 +44,12 @@ export class RoteiroController {
     return responder(this.roteiros.criarDeslocamento(request.contaId, id, dayId, dto));
   }
 
+  @Post('generate')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async gerar(@Req() request: RequestComConta, @Param('id') id: string, @Body(corpo(GerarDto)) dto: GerarDto): Promise<GeracaoLida> {
+    return responderGeracao(this.roteiros.gerar(request.contaId, id, dto ?? {}));
+  }
+
   @Post('stops/:stopId/done')
   async marcar(@Req() request: RequestComConta, @Param('id') id: string, @Param('stopId') stopId: string): Promise<RoteiroLido> {
     return responder(this.roteiros.marcarFeito(request.contaId, id, stopId, true));
@@ -55,14 +61,25 @@ export class RoteiroController {
   }
 }
 
+async function responderGeracao(pedido: Promise<GeracaoLida | FalhaRoteiro>): Promise<GeracaoLida> {
+  const resultado = await pedido;
+  if (typeof resultado === 'string') throw httpDe(resultado);
+  return resultado;
+}
+
 async function responder(pedido: Promise<RoteiroLido | FalhaRoteiro>): Promise<RoteiroLido> {
   const resultado = await pedido;
-  if (resultado === 'ausente') throw new HttpException({ message: 'Viagem não encontrada.' }, HttpStatus.NOT_FOUND);
-  if (resultado === 'semEdicao') throw new HttpException({ message: 'Você não pode editar o roteiro.' }, HttpStatus.FORBIDDEN);
-  if (resultado === 'dia') throw new HttpException({ message: 'Dia não encontrado.' }, HttpStatus.NOT_FOUND);
-  if (resultado === 'parada') throw new HttpException({ message: 'Parada não encontrada.' }, HttpStatus.NOT_FOUND);
-  if (resultado === 'destino') throw new HttpException({ message: 'Destino não encontrado.' }, HttpStatus.NOT_FOUND);
+  if (typeof resultado === 'string') throw httpDe(resultado);
   return resultado;
+}
+
+function httpDe(falha: FalhaRoteiro): HttpException {
+  if (falha === 'ausente') return new HttpException({ message: 'Viagem não encontrada.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'semEdicao') return new HttpException({ message: 'Você não pode editar o roteiro.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'dia') return new HttpException({ message: 'Dia não encontrado.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'parada') return new HttpException({ message: 'Parada não encontrada.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'destino') return new HttpException({ message: 'Destino não encontrado.' }, HttpStatus.NOT_FOUND);
+  return new HttpException({ message: 'Viagens com mais de 14 dias não geram roteiro automático.' }, HttpStatus.CONFLICT);
 }
 
 function corpo<T>(tipo: new () => T): ValidationPipe {

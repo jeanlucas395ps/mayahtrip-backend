@@ -53,7 +53,18 @@ export interface DeslocamentoNovo {
   durationSeconds?: number;
 }
 
-export type FalhaRoteiro = 'ausente' | 'semEdicao' | 'dia' | 'parada' | 'destino';
+export type FalhaRoteiro = 'ausente' | 'semEdicao' | 'dia' | 'parada' | 'destino' | 'longa';
+
+export interface PedidoDeGeracao {
+  interests?: string[];
+  pace?: string;
+}
+
+export interface GeracaoLida {
+  jobId: string;
+  status: 'completed';
+  itineraryId: string;
+}
 
 export interface RoteiroRepositorio {
   ler(userId: string, viagemId: string): Promise<RoteiroLido | 'ausente'>;
@@ -61,4 +72,5 @@ export interface RoteiroRepositorio {
   criarParada(userId: string, viagemId: string, diaId: string, parada: ParadaNova): Promise<RoteiroLido | FalhaRoteiro>;
   criarDeslocamento(userId: string, viagemId: string, diaId: string, deslocamento: DeslocamentoNovo): Promise<RoteiroLido | FalhaRoteiro>;
   marcarFeito(userId: string, viagemId: string, paradaId: string, feito: boolean): Promise<RoteiroLido | FalhaRoteiro>;
+  gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao): Promise<GeracaoLida | FalhaRoteiro>;
 }
