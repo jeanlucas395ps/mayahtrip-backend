@@ -15,13 +15,16 @@ import {
   RedefinirSenhaUseCase,
 } from './application/use-cases/recuperar-senha.use-case';
 import { PerfilUseCase } from './application/use-cases/perfil.use-case';
+import { PreferenciaUseCase } from './application/use-cases/preferencia.use-case';
 import { SessaoDeAcesso } from './application/sessao-de-acesso';
 import { ARMAZENAMENTO } from './domain/ports/armazenamento.port';
 import { CODIGO_HANDOFF_REPOSITORIO } from './domain/ports/codigo-handoff-repositorio.port';
 import { CONTA_REPOSITORIO } from './domain/ports/conta-repositorio.port';
 import { HASH_DE_SENHA } from './domain/ports/hash-de-senha.port';
 import { LISTA_DE_REVOGACAO } from './domain/ports/lista-de-revogacao.port';
+import { LOCALIZADOR } from './domain/ports/localizador.port';
 import { PERFIL_REPOSITORIO } from './domain/ports/perfil-repositorio.port';
+import { PREFERENCIA_REPOSITORIO } from './domain/ports/preferencia-repositorio.port';
 import { PREPARADOR_DE_AVATAR } from './domain/ports/preparador-de-avatar.port';
 import { REMETENTE_DE_EMAIL } from './domain/ports/remetente-de-email.port';
 import { RECUPERACAO_DE_SENHA_REPOSITORIO } from './domain/ports/recuperacao-de-senha-repositorio.port';
@@ -30,9 +33,11 @@ import { SESSAO_REPOSITORIO } from './domain/ports/sessao-repositorio.port';
 import { VALIDADOR_TOKEN_GOOGLE } from './domain/ports/validador-token-google.port';
 import { SmtpRemetenteDeEmailAdapter } from './infrastructure/email/smtp-remetente-de-email.adapter';
 import { SharpPreparadorDeAvatar } from './infrastructure/image/sharp-preparador-de-avatar';
+import { IpapiLocalizador } from './infrastructure/location/ipapi-localizador';
 import { CodigoHandoffTypeOrmRepositorio } from './infrastructure/persistence/repositories/codigo-handoff-typeorm.repositorio';
 import { ContaTypeOrmRepositorio } from './infrastructure/persistence/repositories/conta-typeorm.repositorio';
 import { PerfilTypeOrmRepositorio } from './infrastructure/persistence/repositories/perfil-typeorm.repositorio';
+import { PreferenciaTypeOrmRepositorio } from './infrastructure/persistence/repositories/preferencia-typeorm.repositorio';
 import { RecuperacaoDeSenhaTypeOrmRepositorio } from './infrastructure/persistence/repositories/recuperacao-de-senha-typeorm.repositorio';
 import { SessaoTypeOrmRepositorio } from './infrastructure/persistence/repositories/sessao-typeorm.repositorio';
 import { Argon2HashDeSenhaAdapter } from './infrastructure/security/argon2-hash-de-senha.adapter';
@@ -42,6 +47,7 @@ import { GcsArmazenamento } from './infrastructure/storage/gcs-armazenamento.ada
 import { SistemaRelogioAdapter } from './infrastructure/time/sistema-relogio.adapter';
 import { AuthController } from './interface/http/controllers/auth.controller';
 import { MeuPerfilController, PerfilPublicoController } from './interface/http/controllers/perfil.controller';
+import { PreferenciaController } from './interface/http/controllers/preferencia.controller';
 import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/guards/access-token.guard';
 
 @Module({
@@ -56,7 +62,7 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
       }),
     }),
   ],
-  controllers: [AuthController, MeuPerfilController, PerfilPublicoController],
+  controllers: [AuthController, MeuPerfilController, PerfilPublicoController, PreferenciaController],
   providers: [
     CriarContaUseCase,
     ConfirmarContaUseCase,
@@ -69,12 +75,15 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
     ConferirCodigoDeSenhaUseCase,
     RedefinirSenhaUseCase,
     PerfilUseCase,
+    PreferenciaUseCase,
     SessaoDeAcesso,
     AccessTokenGuard,
     AccessTokenOpcionalGuard,
     { provide: CONTA_REPOSITORIO, useClass: ContaTypeOrmRepositorio },
     { provide: SESSAO_REPOSITORIO, useClass: SessaoTypeOrmRepositorio },
     { provide: PERFIL_REPOSITORIO, useClass: PerfilTypeOrmRepositorio },
+    { provide: PREFERENCIA_REPOSITORIO, useClass: PreferenciaTypeOrmRepositorio },
+    { provide: LOCALIZADOR, useClass: IpapiLocalizador },
     { provide: ARMAZENAMENTO, useClass: GcsArmazenamento },
     { provide: PREPARADOR_DE_AVATAR, useClass: SharpPreparadorDeAvatar },
     { provide: RECUPERACAO_DE_SENHA_REPOSITORIO, useClass: RecuperacaoDeSenhaTypeOrmRepositorio },
