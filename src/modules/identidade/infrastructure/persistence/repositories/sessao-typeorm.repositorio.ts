@@ -60,6 +60,17 @@ export class SessaoTypeOrmRepositorio implements SessaoRepositorio {
     );
     return linhas.map((linha) => ({ ...paraDominio(linha), revogada: true, accessJti: '' }));
   }
+
+  async revogarDoUsuario(contaId: string): Promise<string[]> {
+    const linhas = await this.dados.query<{ family_id: string }[]>(
+      `UPDATE identity.user_sessions
+       SET revoked_at = COALESCE(revoked_at, now())
+       WHERE user_id = $1 AND revoked_at IS NULL
+       RETURNING family_id`,
+      [contaId],
+    );
+    return [...new Set(linhas.map((linha) => linha.family_id))];
+  }
 }
 
 function paraDominio(linha: LinhaSessao): SessaoGravada {

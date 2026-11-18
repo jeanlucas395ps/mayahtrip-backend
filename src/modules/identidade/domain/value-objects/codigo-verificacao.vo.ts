@@ -27,9 +27,12 @@ export class CodigoVerificacao {
     return this.valor === informado || this.valor === hashDeCodigo(informado);
   }
 
+  expiraEm(): Date {
+    return new Date(this.geradoEm.getTime() + this.validoPorMinutos * 60_000);
+  }
+
   estaExpirado(agora: Date): boolean {
-    const expiraEm = this.geradoEm.getTime() + this.validoPorMinutos * 60_000;
-    return agora.getTime() >= expiraEm;
+    return agora.getTime() >= this.expiraEm().getTime();
   }
 
   toString(): string {

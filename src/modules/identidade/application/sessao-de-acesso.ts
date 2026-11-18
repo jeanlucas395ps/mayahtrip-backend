@@ -56,6 +56,37 @@ export class SessaoDeAcesso {
     };
   }
 
+  /**
+   * “Sair” encerra só a família deste aparelho. O refresh identifica a
+   * família; o jti do access precisa estar nela quando o índice existe.
+   */
+  async encerrarLocal(contaId: string, refreshToken: string, jtiAtual: string): Promise<boolean> {
+    const sessao = await this.sessoes.buscarPorHashRefresh(hashOpaco(refreshToken));
+    if (!sessao || sessao.contaId !== contaId || sessao.revogada || sessao.consumidaEm) {
+      return false;
+    }
+
+    const jtis = await this.revogacao.jtisDaFamilia(sessao.familiaId).catch(() => [] as string[]);
+    if (jtis.length > 0 && !jtis.includes(jtiAtual)) {
+      return false;
+    }
+
+    await this.revogarFamilia(sessao);
+    await this.revogacao.revogar(jtiAtual, this.config.jwtAccessTtlSeconds);
+    return true;
+  }
+
+  /** A recuperação começa deslogada: não há família local para preservar. */
+  async encerrarTodas(contaId: string): Promise<void> {
+    const familias = await this.sessoes.revogarDoUsuario(contaId);
+    for (const familiaId of familias) {
+      const jtis = await this.revogacao.jtisDaFamilia(familiaId).catch(() => [] as string[]);
+      for (const jti of jtis) {
+        await this.revogacao.revogar(jti, this.config.jwtAccessTtlSeconds);
+      }
+    }
+  }
+
   async renovar(refreshToken: string): Promise<ResultadoRenovacao> {
     const sessao = await this.sessoes.buscarPorHashRefresh(hashOpaco(refreshToken));
     const agora = this.relogio.agora();

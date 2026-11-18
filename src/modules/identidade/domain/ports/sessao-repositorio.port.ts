@@ -18,4 +18,6 @@ export interface SessaoRepositorio {
   marcarConsumida(id: string, quando: Date): Promise<void>;
   /** Devolve as linhas da família, já marcadas como revogadas. */
   revogarFamilia(familiaId: string): Promise<SessaoGravada[]>;
+  /** Revoga toda sessão ainda aberta da conta e devolve as famílias atingidas. */
+  revogarDoUsuario(contaId: string): Promise<string[]>;
 }

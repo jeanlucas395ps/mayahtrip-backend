@@ -37,6 +37,30 @@ const MENSAGENS: Record<string, Record<LocaleOficial, string>> = {
     en: 'Invalid code.',
     es: 'Código no válido.',
   },
+  pedidoSenha: {
+    'pt-BR': 'Se existir uma conta com esse e-mail, enviaremos um código de verificação.',
+    'pt-PT': 'Se existir uma conta com este e-mail, enviaremos um código de verificação.',
+    en: 'If an account exists for this email, we will send a verification code.',
+    es: 'Si existe una cuenta con este correo, enviaremos un código de verificación.',
+  },
+  senhaAlterada: {
+    'pt-BR': 'Senha alterada. Por segurança, encerramos as sessões em outros aparelhos.',
+    'pt-PT': 'Senha alterada. Por segurança, encerrámos as sessões noutros aparelhos.',
+    en: 'Password changed. For security, we ended the sessions on other devices.',
+    es: 'Contraseña cambiada. Por seguridad, cerramos las sesiones en otros dispositivos.',
+  },
+  senhaCurta: {
+    'pt-BR': 'A senha precisa ter pelo menos 8 caracteres.',
+    'pt-PT': 'A senha precisa ter pelo menos 8 caracteres.',
+    en: 'The password must have at least 8 characters.',
+    es: 'La contraseña necesita al menos 8 caracteres.',
+  },
+  sairRecusado: {
+    'pt-BR': 'Não foi possível sair.',
+    'pt-PT': 'Não foi possível sair.',
+    en: 'Could not sign out.',
+    es: 'No fue posible salir.',
+  },
 };
 
 export function mensagem(chave: keyof typeof MENSAGENS, locale: LocaleOficial): string {
