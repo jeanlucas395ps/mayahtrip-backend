@@ -35,4 +35,6 @@ export const validationSchema = Joi.object({
 
   // Nome usado pela documentação do ReadMe. Vazio não publica.
   README_API_KEY: Joi.string().allow('').optional(),
+
+  GCS_BUCKET: Joi.string().allow('').default(''),
 });
