@@ -4,21 +4,26 @@ import { JwtModule } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { DataSource } from 'typeorm';
 import { authConfig } from '../../config/auth.config';
+import { IdentidadeModule } from '../identidade/identidade.module';
 import { AdministradoresUseCase } from './application/administradores.use-case';
 import { PLANOS } from './application/planos.repositorio';
 import { PlanosUseCase } from './application/planos.use-case';
 import { SessaoAdminUseCase } from './application/sessao-admin.use-case';
+import { UsuariosUseCase } from './application/usuarios.use-case';
 import { ADMINISTRADORES } from './domain/ports/administradores.port';
 import { SESSAO_ADMIN } from './domain/ports/sessao-admin.port';
+import { USUARIOS } from './domain/ports/usuarios.port';
 import { AdministradoresPgRepositorio } from './infrastructure/persistence/administradores-pg.repositorio';
 import { PlanosPgRepositorio } from './infrastructure/persistence/planos-pg.repositorio';
 import { SessaoAdminPgRepositorio } from './infrastructure/persistence/sessao-admin-pg.repositorio';
+import { UsuariosPgRepositorio } from './infrastructure/persistence/usuarios-pg.repositorio';
 import { AdminController } from './interface/http/controllers/admin.controller';
 import { AsaasWebhookController } from './interface/http/controllers/asaas-webhook.controller';
 import { AdminGuard } from './interface/http/guards/admin.guard';
 
 @Module({
   imports: [
+    IdentidadeModule,
     JwtModule.registerAsync({
       inject: [authConfig.KEY],
       useFactory: (config: ConfigType<typeof authConfig>) => ({
@@ -32,10 +37,12 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     PlanosUseCase,
     SessaoAdminUseCase,
     AdministradoresUseCase,
+    UsuariosUseCase,
     AdminGuard,
     { provide: PLANOS, useClass: PlanosPgRepositorio },
     { provide: SESSAO_ADMIN, useClass: SessaoAdminPgRepositorio },
     { provide: ADMINISTRADORES, useClass: AdministradoresPgRepositorio },
+    { provide: USUARIOS, useClass: UsuariosPgRepositorio },
   ],
 })
 export class AdminModule implements OnModuleInit {

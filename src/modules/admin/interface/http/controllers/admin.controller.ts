@@ -1,7 +1,9 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Inject, Param, Patch, Post, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Inject, Param, Patch, Post, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AdministradoresUseCase, AdministradorAusenteError, AdministradorUnicoError, EmailDeAdministradorEmUsoError } from '../../../application/administradores.use-case';
+import { FiltroInvalidoError, UsuarioAusenteError, UsuarioExcluidoError, UsuariosUseCase } from '../../../application/usuarios.use-case';
 import { AdministradorGravado } from '../../../domain/ports/administradores.port';
+import { UsuarioDoApp } from '../../../domain/ports/usuarios.port';
 import { PlanoGravado, PlanosUseCase, SalvarPlano } from '../../../application/planos.use-case';
 import { SessaoAdminUseCase } from '../../../application/sessao-admin.use-case';
 import { CriarAdministradorDto, EditarAdministradorDto, EntrarAdminDto, SalvarPlanoDto } from '../dto/plano.dto';
@@ -14,6 +16,7 @@ export class AdminController {
     @Inject(PlanosUseCase) private readonly planos: PlanosUseCase,
     @Inject(SessaoAdminUseCase) private readonly sessoes: SessaoAdminUseCase,
     @Inject(AdministradoresUseCase) private readonly administradores: AdministradoresUseCase,
+    @Inject(UsuariosUseCase) private readonly usuarios: UsuariosUseCase,
   ) {}
 
   @Post('sign-in')
@@ -216,6 +219,65 @@ export class AdminController {
       ip: ipDe(request),
     });
   }
+
+  @Get('users')
+  @UseGuards(AdminGuard)
+  listarUsuarios(@Query() query: Record<string, string | undefined>): Promise<UsuarioDoApp[]> {
+    return executarUsuario(() => this.usuarios.listar(query));
+  }
+
+  @Get('users/:id')
+  @UseGuards(AdminGuard)
+  abrirUsuario(@Param('id') id: string): Promise<UsuarioDoApp> {
+    return executarUsuario(() => this.usuarios.porId(id));
+  }
+
+  @Post('users/:id/activate')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  async ativarUsuario(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<UsuarioDoApp> {
+    const usuario = await executarUsuario(() => this.usuarios.definirAtivo(id, true));
+    await this.auditarUsuario(request, 'user.activate', id, { status: usuario.status, deleted: usuario.deleted });
+    return usuario;
+  }
+
+  @Post('users/:id/deactivate')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  async desativarUsuario(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<UsuarioDoApp> {
+    const usuario = await executarUsuario(() => this.usuarios.definirAtivo(id, false));
+    await this.auditarUsuario(request, 'user.deactivate', id, { status: usuario.status, deleted: usuario.deleted });
+    return usuario;
+  }
+
+  @Delete('users/:id')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async excluirUsuario(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<void> {
+    const usuario = await executarUsuario(() => this.usuarios.excluir(id));
+    await this.auditarUsuario(request, 'user.delete', id, { email: usuario.email, deleted: true });
+  }
+
+  @Post('users/:id/restore')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  async restaurarUsuario(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<UsuarioDoApp> {
+    const usuario = await executarUsuario(() => this.usuarios.restaurar(id));
+    await this.auditarUsuario(request, 'user.restore', id, { email: usuario.email, deleted: false, status: usuario.status });
+    return usuario;
+  }
+
+  private auditarUsuario(request: RequestComAdmin, action: string, id: string, novo: Record<string, unknown>): Promise<void> {
+    return this.sessoes.auditar({
+      adminId: request.adminId,
+      action,
+      entityType: 'user',
+      entityId: id,
+      oldValues: null,
+      newValues: novo,
+      ip: ipDe(request),
+    });
+  }
 }
 
 function paraEntrada(dto: SalvarPlanoDto): SalvarPlano {
@@ -279,6 +341,23 @@ async function executarAdmin<T>(acao: () => Promise<T>): Promise<T> {
     }
     if (erro instanceof AdministradorAusenteError) {
       throw new HttpException({ message: 'Administrador não encontrado.' }, HttpStatus.NOT_FOUND);
+    }
+    throw erro;
+  }
+}
+
+async function executarUsuario<T>(acao: () => Promise<T>): Promise<T> {
+  try {
+    return await acao();
+  } catch (erro) {
+    if (erro instanceof UsuarioExcluidoError) {
+      throw new HttpException({ message: 'Restaure a conta antes de ativar ou desativar.' }, HttpStatus.CONFLICT);
+    }
+    if (erro instanceof UsuarioAusenteError) {
+      throw new HttpException({ message: 'Usuário não encontrado.' }, HttpStatus.NOT_FOUND);
+    }
+    if (erro instanceof FiltroInvalidoError) {
+      throw new HttpException({ message: 'Filtro inválido.' }, HttpStatus.BAD_REQUEST);
     }
     throw erro;
   }
