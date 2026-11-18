@@ -23,6 +23,10 @@ import { UsuariosPgRepositorio } from './infrastructure/persistence/usuarios-pg.
 import { ViagensAdminUseCase } from './application/viagens-admin.use-case';
 import { VIAGENS_ADMIN } from './domain/ports/viagens-admin.port';
 import { ViagensAdminPgRepositorio } from './infrastructure/persistence/viagens-admin-pg.repositorio';
+import { MalaAdminUseCase } from './application/mala-admin.use-case';
+import { MALA_ADMIN } from './domain/ports/mala-admin.port';
+import { MalaAdminPgRepositorio } from './infrastructure/persistence/mala-admin-pg.repositorio';
+import { MalaAdminController } from './interface/http/controllers/mala-admin.controller';
 import { ViagensAdminController } from './interface/http/controllers/viagens-admin.controller';
 import { CatalogoAdminController } from './interface/http/controllers/catalogo-admin.controller';
 import { AdminController } from './interface/http/controllers/admin.controller';
@@ -40,7 +44,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
       }),
     }),
   ],
-  controllers: [AdminController, CatalogoAdminController, ViagensAdminController, AsaasWebhookController],
+  controllers: [AdminController, CatalogoAdminController, ViagensAdminController, MalaAdminController, AsaasWebhookController],
   providers: [
     PlanosUseCase,
     SessaoAdminUseCase,
@@ -48,6 +52,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     UsuariosUseCase,
     CatalogoAdminUseCase,
     ViagensAdminUseCase,
+    MalaAdminUseCase,
     AdminGuard,
     { provide: PLANOS, useClass: PlanosPgRepositorio },
     { provide: SESSAO_ADMIN, useClass: SessaoAdminPgRepositorio },
@@ -55,6 +60,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     { provide: USUARIOS, useClass: UsuariosPgRepositorio },
     { provide: CATALOGO_ADMIN, useClass: CatalogoAdminPgRepositorio },
     { provide: VIAGENS_ADMIN, useClass: ViagensAdminPgRepositorio },
+    { provide: MALA_ADMIN, useClass: MalaAdminPgRepositorio },
   ],
 })
 export class AdminModule implements OnModuleInit {
