@@ -61,7 +61,7 @@ export function operacoesDoDocumento(documento: Pick<OpenAPIObject, 'paths'>): s
     if (!item) continue;
     for (const metodo of ['get', 'post', 'put', 'patch', 'delete'] as const) {
       if (item[metodo]) {
-        operacoes.push(formatarOperacao(metodo, caminho));
+        operacoes.push(formatarOperacao(metodo, caminho.replace(/\{([^}]+)\}/g, ':$1')));
       }
     }
   }

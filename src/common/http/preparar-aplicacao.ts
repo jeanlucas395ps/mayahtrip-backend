@@ -12,6 +12,11 @@ export function prepararAplicacao(app: INestApplication): void {
     defaultVersion: VERSAO_API,
   });
 
+  const ambiente = process.env.NODE_ENV ?? 'development';
+  if (ambiente === 'development' || ambiente === 'test') {
+    app.enableCors({ origin: process.env.PANEL_ORIGIN ?? 'http://127.0.0.1:4200' });
+  }
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
