@@ -111,6 +111,6 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
       useFactory: (config: ConfigType<typeof signUpConfig>) => config.codeTtlMinutes,
     },
   ],
-  exports: [SessaoDeAcesso, AccessTokenGuard, JwtModule, LISTA_DE_REVOGACAO, MetricsModule, ARMAZENAMENTO],
+  exports: [SessaoDeAcesso, AccessTokenGuard, JwtModule, LISTA_DE_REVOGACAO, MetricsModule, ARMAZENAMENTO, VisitasUseCase],
 })
 export class IdentidadeModule {}

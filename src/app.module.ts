@@ -22,6 +22,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { CatalogoModule } from './modules/catalogo/catalogo.module';
 import { GeografiaModule } from './modules/geografia/geografia.module';
 import { IdentidadeModule } from './modules/identidade/identidade.module';
+import { ViagemModule } from './modules/viagem/viagem.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { IdentidadeModule } from './modules/identidade/identidade.module';
     AdminModule,
     GeografiaModule,
     CatalogoModule,
+    ViagemModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
