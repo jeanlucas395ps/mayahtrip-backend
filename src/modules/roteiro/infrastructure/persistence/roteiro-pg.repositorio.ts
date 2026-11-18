@@ -149,6 +149,41 @@ export class RoteiroPgRepositorio implements RoteiroRepositorio {
     });
   }
 
+  async otimizar(userId: string, viagemId: string): Promise<RoteiroLido | FalhaRoteiro> {
+    const edicao = await this.podeEditar(viagemId, userId);
+    if (edicao !== 'ok') return edicao;
+    return this.dados.transaction(async (tx) => {
+      const roteiros = await tx.query<{ id: string }[]>(
+        `SELECT id FROM itinerary.trip_itineraries WHERE trip_id = $1 AND is_active ORDER BY version DESC LIMIT 1`,
+        [viagemId],
+      );
+      if (roteiros.length === 0) return 'roteiro';
+      await tx.query(
+        `WITH ordenadas AS (
+           SELECT s.id,
+                  row_number() OVER (
+                    PARTITION BY s.itinerary_day_id
+                    ORDER BY (s.start_time IS NULL), s.start_time, s.sort_order, s.id
+                  ) - 1 AS nova
+           FROM itinerary.itinerary_stops s
+           JOIN itinerary.itinerary_days d ON d.id = s.itinerary_day_id
+           WHERE d.itinerary_id = $1
+         )
+         UPDATE itinerary.itinerary_stops s
+         SET sort_order = ordenadas.nova
+         FROM ordenadas
+         WHERE s.id = ordenadas.id`,
+        [roteiros[0].id],
+      );
+      await tx.query(
+        `INSERT INTO itinerary.itinerary_optimization_runs (itinerary_id, requested_by_user_id, status, completed_at)
+         VALUES ($1, $2, 'completed', clock_timestamp())`,
+        [roteiros[0].id, userId],
+      );
+      return this.montar(viagemId, tx);
+    });
+  }
+
   private async podeEditar(viagemId: string, userId: string): Promise<'ok' | 'ausente' | 'semEdicao'> {
     const acesso = await this.acesso(viagemId, userId);
     if (!acesso) return 'ausente';

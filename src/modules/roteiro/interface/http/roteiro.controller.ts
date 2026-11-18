@@ -50,6 +50,11 @@ export class RoteiroController {
     return responderGeracao(this.roteiros.gerar(request.contaId, id, dto ?? {}));
   }
 
+  @Post('optimize')
+  async otimizar(@Req() request: RequestComConta, @Param('id') id: string): Promise<RoteiroLido> {
+    return responder(this.roteiros.otimizar(request.contaId, id));
+  }
+
   @Post('stops/:stopId/done')
   async marcar(@Req() request: RequestComConta, @Param('id') id: string, @Param('stopId') stopId: string): Promise<RoteiroLido> {
     return responder(this.roteiros.marcarFeito(request.contaId, id, stopId, true));
@@ -79,6 +84,7 @@ function httpDe(falha: FalhaRoteiro): HttpException {
   if (falha === 'dia') return new HttpException({ message: 'Dia não encontrado.' }, HttpStatus.NOT_FOUND);
   if (falha === 'parada') return new HttpException({ message: 'Parada não encontrada.' }, HttpStatus.NOT_FOUND);
   if (falha === 'destino') return new HttpException({ message: 'Destino não encontrado.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'roteiro') return new HttpException({ message: 'A viagem ainda não tem roteiro.' }, HttpStatus.NOT_FOUND);
   return new HttpException({ message: 'Viagens com mais de 14 dias não geram roteiro automático.' }, HttpStatus.CONFLICT);
 }
 

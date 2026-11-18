@@ -139,6 +139,42 @@ describe('Roteiro (e2e, Postgres real)', () => {
     expect(recusa.body.message).toBe('Viagens com mais de 14 dias não geram roteiro automático.');
     expect((await dados.query<{ id: string }[]>(`SELECT id FROM itinerary.itinerary_generation_jobs WHERE trip_id = $1`, [longa.body.id])).length).toBe(0);
   });
+
+  it('ordena as paradas e preserva horário e duração', async () => {
+    const dono = await entrar(app, enviarCodigoDeVerificacao, dados);
+    const auth = { Authorization: `Bearer ${dono.access}` };
+    const marca = randomUUID().slice(0, 8);
+    const paisId = randomUUID();
+    const cidadeId = randomUUID();
+    await dados.query(`INSERT INTO geography.countries (id, name) VALUES ($1, $2)`, [paisId, `Pais ${marca}`]);
+    await dados.query(`INSERT INTO geography.cities (id, country_id, name) VALUES ($1, $2, $3)`, [cidadeId, paisId, `Cidade ${marca}`]);
+    const hoje = String((await dados.query<{ hoje: string }[]>(`SELECT CURRENT_DATE::text AS hoje`))[0].hoje).slice(0, 10);
+    const criada = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({ title: `Ordem ${marca}`, startDate: somar(hoje, 3), endDate: somar(hoje, 3), startMode: 'from_scratch', destinations: [{ cityId: cidadeId }] });
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/itinerary/optimize`).set(auth)).body.message).toBe('A viagem ainda não tem roteiro.');
+    const dia = await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/itinerary/days`).set(auth).send({ dayNumber: 1 });
+    const dayId = dia.body.days[0].id as string;
+    await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/itinerary/days/${dayId}/stops`).set(auth).send({ title: 'Livre', sortOrder: 0 });
+    await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/itinerary/days/${dayId}/stops`).set(auth).send({ title: 'Tarde', sortOrder: 1, startTime: '15:00', durationMinutes: 30 });
+    await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/itinerary/days/${dayId}/stops`).set(auth).send({ title: 'Manhã', sortOrder: 2, startTime: '09:00', durationMinutes: 90 });
+    const otimizada = await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/itinerary/optimize`).set(auth);
+    expect(otimizada.body.days[0].stops.map((item: { title: string; startTime: string | null; durationMinutes: number | null }) => [item.title, item.startTime, item.durationMinutes])).toEqual([
+      ['Manhã', '09:00', 90],
+      ['Tarde', '15:00', 30],
+      ['Livre', null, null],
+    ]);
+    const corrida = await dados.query<{ status: string; start_time: string; duration_minutes: number }[]>(
+      `SELECT r.status, s.start_time::text, s.duration_minutes
+       FROM itinerary.itinerary_optimization_runs r
+       JOIN itinerary.itinerary_stops s ON s.title = 'Manhã'
+       JOIN itinerary.itinerary_days d ON d.id = s.itinerary_day_id AND d.itinerary_id = r.itinerary_id
+       WHERE r.itinerary_id = $1`,
+      [otimizada.body.id],
+    );
+    expect(corrida[0]).toMatchObject({ status: 'completed', start_time: '09:00:00', duration_minutes: 90 });
+  });
 });
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>, dados: DataSource): Promise<{ access: string; userId: string }> {
