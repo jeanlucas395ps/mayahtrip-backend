@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { visaoDe } from '../../../viagem/domain/visao';
-import { CompraNova, ComprasRepositorio, FalhaCompra, ItemDeCompra, ListaDeCompras } from '../../domain/compras.port';
+import { CompraNova, ComprasRepositorio, FalhaCompra, ListaDeCompras } from '../../domain/compras.port';
 import { acessoDaViagem } from '../acesso';
 
 interface LinhaCompra {
