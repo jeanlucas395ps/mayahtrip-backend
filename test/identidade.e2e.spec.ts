@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { prepararAplicacao } from '../src/common/http/preparar-aplicacao';
@@ -11,9 +10,8 @@ import { Relogio } from '../src/modules/identidade/domain/ports/relogio.port';
 import { RELOGIO } from '../src/modules/identidade/domain/ports/relogio.port';
 import { REMETENTE_DE_EMAIL } from '../src/modules/identidade/domain/ports/remetente-de-email.port';
 import { VALIDADOR_TOKEN_GOOGLE } from '../src/modules/identidade/domain/ports/validador-token-google.port';
-import { ContaOrmEntity } from '../src/modules/identidade/infrastructure/persistence/entities/conta.orm-entity';
-import { SessaoOrmEntity } from '../src/modules/identidade/infrastructure/persistence/entities/sessao.orm-entity';
 import { LISTA_DE_REVOGACAO, ListaDeRevogacao } from '../src/modules/identidade/domain/ports/lista-de-revogacao.port';
+import { contarContas, lerConta } from './ler-conta';
 
 class RelogioControlado implements Relogio {
   constructor(public instante = new Date('2026-11-17T12:00:00.000Z')) {}
@@ -29,8 +27,7 @@ class RelogioControlado implements Relogio {
 
 describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
   let app: INestApplication;
-  let contas: Repository<ContaOrmEntity>;
-  let sessoes: Repository<SessaoOrmEntity>;
+  let dados: DataSource;
   const relogio = new RelogioControlado();
   const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
   const validarGoogle = vi.fn();
@@ -51,8 +48,7 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     app = modulo.createNestApplication();
     prepararAplicacao(app);
     await app.init();
-    contas = modulo.get(getRepositoryToken(ContaOrmEntity));
-    sessoes = modulo.get(getRepositoryToken(SessaoOrmEntity));
+    dados = modulo.get(DataSource);
     revogacao = modulo.get(LISTA_DE_REVOGACAO);
   });
 
@@ -65,8 +61,8 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
       .post('/v1/auth/sign-up')
       .send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true });
     expect(resposta.status).toBe(202);
-    const linha = await contas.findOne({ where: { email } });
-    return { email, codigo: linha?.codigoVerificacao ?? '' };
+    const codigo = enviarCodigoDeVerificacao.mock.calls.at(-1)?.[0].codigo as string;
+    return { email, codigo };
   }
 
   it('AC-1 a AC-3 da confirmação: código certo ativa, errado informa o resto, a 6ª não olha o código', async () => {
@@ -79,20 +75,20 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
 
     const certo = await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo });
     expect(certo.status).toBe(200);
-    expect((await contas.findOne({ where: { email } }))?.estado).toBe('confirmada');
+    expect((await lerConta(dados, email))?.status).toBe('active');
 
     const outro = await cadastrar();
     for (let i = 0; i < 5; i += 1) {
       await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email: outro.email, codigo: '0000' });
     }
-    const antes = (await contas.findOne({ where: { email: outro.email } }))?.tentativasCodigo;
+    const antes = (await lerConta(dados, outro.email))?.attempts;
     const sexta = await request(app.getHttpServer())
       .post('/v1/auth/confirm')
       .send({ email: outro.email, codigo: outro.codigo });
     expect(sexta.status).toBe(400);
     expect(sexta.body.tentativasRestantes).toBe(0);
-    expect((await contas.findOne({ where: { email: outro.email } }))?.tentativasCodigo).toBe(antes);
-    expect((await contas.findOne({ where: { email: outro.email } }))?.estado).toBe('pendente');
+    expect((await lerConta(dados, outro.email))?.attempts).toBe(antes);
+    expect((await lerConta(dados, outro.email))?.status).toBe('pending');
   });
 
   it('AC-4: código vencido consome uma tentativa', async () => {
@@ -100,8 +96,8 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     relogio.avancar(10 * 60_000 + 1);
     const vencido = await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo });
     expect(vencido.status).toBe(400);
-    expect((await contas.findOne({ where: { email } }))?.tentativasCodigo).toBe(1);
-    expect((await contas.findOne({ where: { email } }))?.estado).toBe('pendente');
+    expect((await lerConta(dados, email))?.attempts).toBe(1);
+    expect((await lerConta(dados, email))?.status).toBe('pending');
   });
 
   it('AC-5 e AC-6: reenvio antes de 30 s é recusado e no limite zera as tentativas', async () => {
@@ -114,9 +110,9 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     relogio.avancar(30_000);
     const reenvio = await request(app.getHttpServer()).post('/v1/auth/resend-code').send({ email, idioma: 'en' });
     expect(reenvio.status).toBe(202);
-    const linha = await contas.findOne({ where: { email } });
-    expect(linha?.tentativasCodigo).toBe(0);
-    expect(linha?.codigoVerificacao).not.toBe(codigo);
+    const linha = await lerConta(dados, email);
+    expect(linha?.attempts).toBe(0);
+    expect(linha?.code_hash).not.toBe(codigo);
     expect(enviarCodigoDeVerificacao).toHaveBeenCalledWith(
       expect.objectContaining({ paraEmail: email, idioma: expect.objectContaining({ valor: 'en' }) }),
     );
@@ -161,7 +157,7 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     expect(lixo.status).toBe(401);
 
     const segundoLogin = await request(app.getHttpServer()).post('/v1/auth/sign-in').send({ email, senha: 'umaSenhaForte123' });
-    await sessoes.clear();
+    await dados.query(`DELETE FROM identity.user_sessions`);
     const handoff = await request(app.getHttpServer())
       .post('/v1/auth/handoff')
       .set('Authorization', `Bearer ${segundoLogin.body.accessToken}`);
@@ -189,13 +185,13 @@ describe('Identidade 043, 044 e 047 (e2e, Postgres real)', () => {
     validarGoogle.mockResolvedValueOnce({ sub, email, nome: 'Pessoa Google' });
     const primeira = await request(app.getHttpServer()).post('/v1/auth/google').send({ token: 'token-valido' });
     expect(primeira.status).toBe(200);
-    expect((await contas.findOne({ where: { email } }))?.estado).toBe('confirmada');
-    expect((await contas.findOne({ where: { email } }))?.hashSenha).toBeNull();
+    expect((await lerConta(dados, email))?.status).toBe('active');
+    expect((await lerConta(dados, email))?.password_hash).toBeNull();
 
     validarGoogle.mockResolvedValueOnce({ sub, email, nome: 'Pessoa Google' });
     const segunda = await request(app.getHttpServer()).post('/v1/auth/google').send({ token: 'token-valido' });
     expect(segunda.status).toBe(200);
-    expect(await contas.count({ where: { email } })).toBe(1);
+    expect(await contarContas(dados, email)).toBe(1);
 
     validarGoogle.mockResolvedValueOnce(null);
     const invalido = await request(app.getHttpServer()).post('/v1/auth/google').send({ token: 'token-ruim' });

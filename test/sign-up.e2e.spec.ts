@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { prepararAplicacao } from '../src/common/http/preparar-aplicacao';
-import { ContaOrmEntity } from '../src/modules/identidade/infrastructure/persistence/entities/conta.orm-entity';
+import { hashDeCodigo } from '../src/modules/identidade/domain/value-objects/codigo-verificacao.vo';
 import { REMETENTE_DE_EMAIL } from '../src/modules/identidade/domain/ports/remetente-de-email.port';
+import { contarContas, lerConta } from './ler-conta';
 
 /**
  * Teste de integração HTTP ponta a ponta contra o Postgres real do
@@ -26,7 +26,7 @@ import { REMETENTE_DE_EMAIL } from '../src/modules/identidade/domain/ports/remet
  */
 describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
   let app: INestApplication;
-  let repositorioOrm: Repository<ContaOrmEntity>;
+  let dados: DataSource;
   const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
@@ -44,7 +44,7 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
     prepararAplicacao(app);
     await app.init();
 
-    repositorioOrm = moduloDeTeste.get(getRepositoryToken(ContaOrmEntity));
+    dados = moduloDeTeste.get(DataSource);
   });
 
   afterAll(async () => {
@@ -61,14 +61,16 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
     expect(resposta.status).toBe(202);
     expect(resposta.body.mensagem).toMatch(/código de verificação/i);
 
-    const linha = await repositorioOrm.findOne({ where: { email } });
+    const linha = await lerConta(dados, email);
+    const codigoEnviado = enviarCodigoDeVerificacao.mock.calls.at(-1)?.[0].codigo as string;
     expect(linha).not.toBeNull();
-    expect(linha?.estado).toBe('pendente');
-    expect(linha?.hashSenha).toMatch(/^\$argon2id\$/);
-    expect(linha?.codigoVerificacao).toMatch(/^\d{4}$/);
+    expect(linha?.status).toBe('pending');
+    expect(linha?.password_hash).toMatch(/^\$argon2id\$/);
+    expect(linha?.code_hash).toBe(hashDeCodigo(codigoEnviado));
+    expect(codigoEnviado).toMatch(/^\d{4}$/);
 
     expect(enviarCodigoDeVerificacao).toHaveBeenCalledWith(
-      expect.objectContaining({ paraEmail: email, codigo: linha?.codigoVerificacao }),
+      expect.objectContaining({ paraEmail: email, codigo: codigoEnviado }),
     );
   });
 
@@ -133,9 +135,8 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
     expect(segunda.status).toBe(primeira.status);
     expect(segunda.body).toEqual(primeira.body);
 
-    const linhas = await repositorioOrm.find({ where: { email } });
-    expect(linhas).toHaveLength(1);
-    expect(linhas[0].nome).toBe('Pessoa');
+    expect(await contarContas(dados, email)).toBe(1);
+    expect((await lerConta(dados, email))?.display_name).toBe('Pessoa');
   });
 
   it('AC-8: a resposta inclui o correlation id propagado pelo cliente', async () => {

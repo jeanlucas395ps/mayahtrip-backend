@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigType } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { authConfig } from '../../config/auth.config';
 import { signUpConfig } from '../../config/sign-up.config';
 import { MetricsModule } from '../../common/logging/metrics.module';
@@ -19,9 +18,6 @@ import { RELOGIO } from './domain/ports/relogio.port';
 import { SESSAO_REPOSITORIO } from './domain/ports/sessao-repositorio.port';
 import { VALIDADOR_TOKEN_GOOGLE } from './domain/ports/validador-token-google.port';
 import { SmtpRemetenteDeEmailAdapter } from './infrastructure/email/smtp-remetente-de-email.adapter';
-import { CodigoHandoffOrmEntity } from './infrastructure/persistence/entities/codigo-handoff.orm-entity';
-import { ContaOrmEntity } from './infrastructure/persistence/entities/conta.orm-entity';
-import { SessaoOrmEntity } from './infrastructure/persistence/entities/sessao.orm-entity';
 import { CodigoHandoffTypeOrmRepositorio } from './infrastructure/persistence/repositories/codigo-handoff-typeorm.repositorio';
 import { ContaTypeOrmRepositorio } from './infrastructure/persistence/repositories/conta-typeorm.repositorio';
 import { SessaoTypeOrmRepositorio } from './infrastructure/persistence/repositories/sessao-typeorm.repositorio';
@@ -36,7 +32,6 @@ import { AccessTokenGuard } from './interface/http/guards/access-token.guard';
   imports: [
     ConfigModule,
     MetricsModule,
-    TypeOrmModule.forFeature([ContaOrmEntity, SessaoOrmEntity, CodigoHandoffOrmEntity]),
     JwtModule.registerAsync({
       inject: [authConfig.KEY],
       useFactory: (config: ConfigType<typeof authConfig>) => ({

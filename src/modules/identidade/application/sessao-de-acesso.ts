@@ -36,6 +36,7 @@ export class SessaoDeAcesso {
       ? this.config.refreshTtlComManterConectadoSegundos
       : this.config.refreshTtlSemManterConectadoSegundos;
 
+    await this.revogacao.lembrarJti(familiaId, accessJti, this.config.jwtAccessTtlSeconds).catch(() => undefined);
     await this.sessoes.salvar({
       id: randomUUID(),
       contaId,
@@ -76,13 +77,10 @@ export class SessaoDeAcesso {
   }
 
   private async revogarFamilia(sessao: SessaoGravada): Promise<void> {
-    const linhas = await this.sessoes.revogarFamilia(sessao.familiaId);
-    const agora = this.relogio.agora();
-    for (const linha of linhas) {
-      const ttl = Math.ceil((linha.expiraEm.getTime() - agora.getTime()) / 1000);
-      if (ttl > 0) {
-        await this.revogacao.revogar(linha.accessJti, Math.min(ttl, this.config.jwtAccessTtlSeconds));
-      }
+    await this.sessoes.revogarFamilia(sessao.familiaId);
+    const jtis = await this.revogacao.jtisDaFamilia(sessao.familiaId).catch(() => []);
+    for (const jti of jtis) {
+      await this.revogacao.revogar(jti, this.config.jwtAccessTtlSeconds);
     }
   }
 

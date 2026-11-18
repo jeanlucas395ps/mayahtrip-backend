@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 
 /**
  * BUSINESS/02-cadastro-e-verificacao.md: código de 4 dígitos, válido por
@@ -22,6 +22,11 @@ export class CodigoVerificacao {
     return new CodigoVerificacao(valor, geradoEm, validoPorMinutos);
   }
 
+  /** Aceita o código em claro ou o sha256 gravado em identity.user_verification_codes. */
+  conferir(informado: string): boolean {
+    return this.valor === informado || this.valor === hashDeCodigo(informado);
+  }
+
   estaExpirado(agora: Date): boolean {
     const expiraEm = this.geradoEm.getTime() + this.validoPorMinutos * 60_000;
     return agora.getTime() >= expiraEm;
@@ -34,4 +39,8 @@ export class CodigoVerificacao {
   toJSON(): string {
     return this.toString();
   }
+}
+
+export function hashDeCodigo(codigo: string): string {
+  return createHash('sha256').update(codigo).digest('hex');
 }

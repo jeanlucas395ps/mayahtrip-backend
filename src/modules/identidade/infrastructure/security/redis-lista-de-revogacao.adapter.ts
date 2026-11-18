@@ -26,6 +26,17 @@ export class RedisListaDeRevogacao implements ListaDeRevogacao, OnModuleDestroy 
     return valor !== null;
   }
 
+  async lembrarJti(familiaId: string, jti: string, ttlSegundos: number): Promise<void> {
+    if (ttlSegundos <= 0) return;
+    const chaveFamilia = familia(familiaId);
+    await this.cliente.sadd(chaveFamilia, jti);
+    await this.cliente.expire(chaveFamilia, ttlSegundos);
+  }
+
+  async jtisDaFamilia(familiaId: string): Promise<string[]> {
+    return this.cliente.smembers(familia(familiaId));
+  }
+
   async onModuleDestroy(): Promise<void> {
     this.cliente.disconnect();
   }
@@ -33,4 +44,8 @@ export class RedisListaDeRevogacao implements ListaDeRevogacao, OnModuleDestroy 
 
 function chave(jti: string): string {
   return `jti:revogado:${jti}`;
+}
+
+function familia(familiaId: string): string {
+  return `familia:jti:${familiaId}`;
 }

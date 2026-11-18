@@ -165,7 +165,7 @@ export class Conta {
     }
 
     const codigo = this.codigo;
-    const aceito = codigo !== null && codigo.valor === codigoInformado && !codigo.estaExpirado(agora);
+    const aceito = codigo !== null && codigo.conferir(codigoInformado) && !codigo.estaExpirado(agora);
 
     if (!aceito) {
       this.tentativas += 1;

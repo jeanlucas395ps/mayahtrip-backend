@@ -3,10 +3,10 @@ import { registerAs } from '@nestjs/config';
 export interface AuthConfig {
   jwtAccessSecret: string;
   jwtAccessTtlSeconds: number;
-  /** Proposta da ADR 0001, ainda não fechada pelo produto. */
+  /** Fechado em 18 Nov 2026: 30 dias com manter conectado, 1 dia sem. */
   refreshTtlComManterConectadoSegundos: number;
   refreshTtlSemManterConectadoSegundos: number;
-  /** Proposta da spec 047 (60 s), ainda não fechada pelo produto. */
+  /** Fechado em 18 Nov 2026: 60 segundos, uso único. */
   handoffTtlSegundos: number;
 }
 
