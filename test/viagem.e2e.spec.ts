@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -30,12 +30,13 @@ describe('Viagem (e2e, Postgres real)', () => {
   let dados: DataSource;
   const armazenamento = new MemoriaArmazenamento();
   const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarConvite = vi.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_LIMITE = '1000';
     const modulo = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(REMETENTE_DE_EMAIL)
-      .useValue({ enviarCodigoDeVerificacao })
+      .useValue({ enviarCodigoDeVerificacao, enviarConvite })
       .overrideProvider(ARMAZENAMENTO)
       .useValue(armazenamento)
       .compile();
@@ -303,10 +304,128 @@ describe('Viagem (e2e, Postgres real)', () => {
     expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${fora.access}`)).status).toBe(404);
     expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set(auth)).status).toBe(200);
   });
+
+  it('envia o convite no e-mail de quem entra, aceita uma vez e recusa o outro', async () => {
+    const dono = await entrar(app, enviarCodigoDeVerificacao);
+    const convidado = await entrar(app, enviarCodigoDeVerificacao);
+    const fora = await entrar(app, enviarCodigoDeVerificacao);
+    const auth = { Authorization: `Bearer ${dono.access}` };
+    await dados.query(`UPDATE identity.user_preferences SET locale = 'pt-PT', follow_device_locale = false WHERE user_id = $1`, [dono.userId]);
+    await dados.query(`UPDATE identity.user_preferences SET locale = 'en', follow_device_locale = false WHERE user_id = $1`, [convidado.userId]);
+    const marca = randomUUID().slice(0, 8);
+    const emailNovo = `novo-${marca}@exemplo.com`;
+    const paisId = randomUUID();
+    const cidadeId = randomUUID();
+    await dados.query(`INSERT INTO geography.countries (id, name) VALUES ($1, $2)`, [paisId, `Pais ${marca}`]);
+    await dados.query(`INSERT INTO geography.cities (id, country_id, name) VALUES ($1, $2, $3)`, [cidadeId, paisId, `Cidade ${marca}`]);
+    const hoje = String((await dados.query<{ hoje: string }[]>(`SELECT CURRENT_DATE::text AS hoje`))[0].hoje).slice(0, 10);
+    const chamadas = enviarConvite.mock.calls.length;
+
+    const criada = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({
+        title: `Convite ${marca}`,
+        startDate: somar(hoje, 4),
+        endDate: somar(hoje, 6),
+        startMode: 'from_scratch',
+        destinations: [{ cityId: cidadeId }],
+        invites: [
+          { email: convidado.email, role: 'experienced_traveler' },
+          { email: emailNovo, role: 'junior_assistant' },
+        ],
+      });
+    expect(criada.status).toBe(201);
+    const envios = enviarConvite.mock.calls.slice(chamadas).map((chamada) => chamada[0] as { paraEmail: string; token: string; idioma: { valor: string } });
+    expect(envios.map((item) => [item.paraEmail, item.idioma.valor])).toEqual([
+      [convidado.email, 'en'],
+      [emailNovo, 'pt-PT'],
+    ]);
+    expect(JSON.stringify(criada.body)).not.toContain(envios[0].token);
+    expect(criada.body.participants.map((item: { displayName: string; role: string | null; joined: boolean }) => [item.displayName, item.role, item.joined])).toEqual(
+      expect.arrayContaining([
+        ['Pessoa E2E', 'owner', true],
+        [convidado.email.slice(0, convidado.email.indexOf('@')), 'experienced_traveler', false],
+        [`novo-${marca}`, 'junior_assistant', false],
+      ]),
+    );
+
+    const linhas = await dados.query<{ invited_email: string; role: string; status: string; invited_user_id: string | null; token_hash: string; opened_at: Date | null; channel: string }[]>(
+      `SELECT i.invited_email, i.role::text, i.status::text, i.invited_user_id, i.channel::text, tok.token_hash, tok.opened_at
+       FROM travel.trip_invitations i
+       JOIN travel.trip_invitation_tokens tok ON tok.invitation_id = i.id
+       WHERE i.trip_id = $1
+       ORDER BY i.invited_email`,
+      [criada.body.id],
+    );
+    const doConvidado = envios.find((item) => item.paraEmail === convidado.email);
+    const doNovo = envios.find((item) => item.paraEmail === emailNovo);
+    expect(linhas).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          invited_email: convidado.email,
+          role: 'experienced_traveler',
+          status: 'pending',
+          invited_user_id: convidado.userId,
+          channel: 'email',
+          token_hash: createHash('sha256').update(doConvidado?.token ?? '').digest('hex'),
+          opened_at: null,
+        }),
+        expect.objectContaining({
+          invited_email: emailNovo,
+          role: 'junior_assistant',
+          status: 'pending',
+          invited_user_id: null,
+          channel: 'email',
+          token_hash: createHash('sha256').update(doNovo?.token ?? '').digest('hex'),
+          opened_at: null,
+        }),
+      ]),
+    );
+    expect(linhas).toHaveLength(2);
+
+    expect((await request(app.getHttpServer()).post('/v1/invitations/open').set('Authorization', `Bearer ${fora.access}`).send({ token: doConvidado?.token })).body.message).toBe('Este convite é de outra pessoa.');
+    const aberto = await request(app.getHttpServer()).post('/v1/invitations/open').set('Authorization', `Bearer ${convidado.access}`).send({ token: doConvidado?.token });
+    expect(aberto.body).toEqual({ tripId: criada.body.id, tripTitle: `Convite ${marca}`, role: 'experienced_traveler', status: 'pending' });
+    const depois = await dados.query<{ opened_at: Date | null }[]>(
+      `SELECT opened_at FROM travel.trip_invitation_tokens WHERE token_hash = $1`,
+      [createHash('sha256').update(doConvidado?.token ?? '').digest('hex')],
+    );
+    expect(depois[0].opened_at).not.toBeNull();
+    expect((await request(app.getHttpServer()).post('/v1/invitations/open').set('Authorization', `Bearer ${fora.access}`).send({ token: doConvidado?.token })).status).toBe(403);
+
+    const aceita = await request(app.getHttpServer()).post('/v1/invitations/accept').set('Authorization', `Bearer ${convidado.access}`).send({ token: doConvidado?.token });
+    expect(aceita.status).toBe(201);
+    expect(aceita.body.view).toEqual({ itinerary: true, edit: true, expenses: true, documents: false });
+    expect((await request(app.getHttpServer()).post('/v1/invitations/accept').set('Authorization', `Bearer ${convidado.access}`).send({ token: doConvidado?.token })).body.message).toBe('Este convite já foi usado.');
+
+    const novo = await entrar(app, enviarCodigoDeVerificacao, emailNovo);
+    const recusa = await request(app.getHttpServer()).post('/v1/invitations/decline').set('Authorization', `Bearer ${novo.access}`).send({ token: doNovo?.token });
+    expect(recusa.body).toEqual({ status: 'declined' });
+    expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${novo.access}`)).status).toBe(404);
+    const recusada = await dados.query<{ status: string; removed_at: Date | null }[]>(
+      `SELECT i.status::text, p.removed_at
+       FROM travel.trip_invitations i
+       JOIN travel.trip_participants p ON p.id = i.participant_id
+       WHERE i.trip_id = $1 AND i.invited_email = $2`,
+      [criada.body.id, emailNovo],
+    );
+    expect(recusada[0].status).toBe('declined');
+    expect(recusada[0].removed_at).not.toBeNull();
+
+    const emailJunior = `junior-${marca}@exemplo.com`;
+    const conviteJunior = await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/invitations`).set('Authorization', `Bearer ${convidado.access}`).send({ email: emailJunior, role: 'junior_assistant' });
+    expect(conviteJunior.status).toBe(201);
+    const tokenJunior = enviarConvite.mock.calls.at(-1)?.[0].token as string;
+    const junior = await entrar(app, enviarCodigoDeVerificacao, emailJunior);
+    expect((await request(app.getHttpServer()).post('/v1/invitations/accept').set('Authorization', `Bearer ${junior.access}`).send({ token: tokenJunior })).status).toBe(201);
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/invitations`).set('Authorization', `Bearer ${junior.access}`).send({ email: `outro-${marca}@exemplo.com`, role: 'experienced_traveler' })).body.message).toBe('Você não pode convidar para esta viagem.');
+    expect((await request(app.getHttpServer()).post('/v1/trips').set(auth).send({ durationDays: 2, startMode: 'from_scratch', destinations: [{ customName: 'Lugar' }], invites: [{ email: 'sem-arroba', role: 'experienced_traveler' }] })).body.message).toBe('Digite um e-mail válido.');
+  });
 });
 
-async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>): Promise<{ access: string; userId: string; email: string }> {
-  const email = `viagem-${randomUUID()}@exemplo.com`;
+async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>, emailInformado?: string): Promise<{ access: string; userId: string; email: string }> {
+  const email = emailInformado ?? `viagem-${randomUUID()}@exemplo.com`;
   expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
   const codigo = enviar.mock.calls.at(-1)?.[0].codigo as string;
   expect((await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo })).status).toBe(200);

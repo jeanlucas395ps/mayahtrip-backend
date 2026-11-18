@@ -11,6 +11,23 @@ export class RenomearParticipanteDto {
   displayName!: string;
 }
 
+export class TokenDeConviteDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  token!: string;
+}
+
+export class ConviteDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(255)
+  email!: string;
+
+  @IsIn(['supreme_traveler', 'experienced_traveler', 'junior_assistant'])
+  role!: 'supreme_traveler' | 'experienced_traveler' | 'junior_assistant';
+}
+
 export class DestinoDto {
   @IsOptional()
   @IsUUID()
@@ -75,4 +92,10 @@ export class CriarViagemDto {
   @ValidateNested({ each: true })
   @Type(() => DestinoDto)
   destinations!: DestinoDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ConviteDto)
+  invites?: ConviteDto[];
 }

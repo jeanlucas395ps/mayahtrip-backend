@@ -2,5 +2,9 @@
   "codigoVerificacao": {
     "assunto": "O seu código de verificação MayahTrip",
     "corpo": "Olá, {{nome}}! O seu código de verificação é {{codigo}}. É válido por {{minutos}} minutos."
+  },
+  "convite": {
+    "assunto": "{{nome}} convidou-te para uma viagem",
+    "corpo": "{{nome}} convidou-te para a viagem {{viagem}}. Abre a ligação para aceitar ou recusar. É de uso único e não tem prazo: {{link}}"
   }
 }

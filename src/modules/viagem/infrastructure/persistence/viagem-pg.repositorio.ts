@@ -1,13 +1,19 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { visaoDe } from '../../domain/visao';
+import { podeConvidar, visaoDe } from '../../domain/visao';
 import {
   Carteira,
+  ConviteAberto,
+  ConviteNovo,
+  ConviteParaEnviar,
   CriarViagem,
   DestinoLido,
   FiltroDaCarteira,
+  IdiomaDoConvite,
   ModoDeComeco,
   Papel,
+  PapelDoConvite,
   ParticipanteLido,
   StatusDoCartao,
   ViagemLida,
@@ -114,8 +120,9 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
     return linhas.length > 0;
   }
 
-  async criar(entrada: CriarViagem): Promise<string> {
-    return this.dados.transaction(async (tx) => {
+  async criar(entrada: CriarViagem): Promise<{ id: string; convites: ConviteParaEnviar[] } | 'pessoa' | 'duplicado'> {
+    try {
+      return await this.dados.transaction(async (tx) => {
       const criadas = await tx.query<{ id: string }[]>(
         `INSERT INTO travel.trips (
            owner_user_id, title, description, start_date, end_date, duration_days, visibility, start_mode,
@@ -141,15 +148,70 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
         `SELECT display_name FROM identity.user_profiles WHERE user_id = $1`,
         [entrada.ownerId],
       );
-      await gravarParticipantes(tx, id, entrada.ownerId, perfis[0]?.display_name ?? 'Viajante 1', entrada.adultCount, entrada.childCount);
+      const nomeDoDono = perfis[0]?.display_name ?? 'Viajante 1';
+      await gravarParticipantes(tx, id, entrada.ownerId, nomeDoDono, entrada.adultCount, entrada.childCount);
+      const convites = await gravarConvites(tx, id, entrada.ownerId, nomeDoDono, entrada.title, entrada.invites);
       for (const [ordem, destino] of entrada.destinations.entries()) {
         await tx.query(
           `INSERT INTO travel.trip_destinations (trip_id, city_id, custom_name, sort_order) VALUES ($1, $2, $3, $4)`,
           [id, destino.cityId, destino.customName, ordem],
         );
       }
-      return id;
+      return { id, convites };
+      });
+    } catch (erro) {
+      return falhaDeConvite(erro);
+    }
+  }
+
+  async convidar(userId: string, viagemId: string, convites: ConviteNovo[]): Promise<ConviteParaEnviar[] | 'ausente' | 'semConvite' | 'pessoa' | 'duplicado'> {
+    const papel = await papelDe(this.dados, viagemId, userId, false);
+    if (papel === 'ausente') return 'ausente';
+    if (!podeConvidar(papel)) return 'semConvite';
+    try {
+      return await this.dados.transaction(async (tx) => {
+        const viagem = await tx.query<{ title: string }[]>(`SELECT title FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`, [viagemId]);
+        const perfis = await tx.query<{ display_name: string }[]>(`SELECT display_name FROM identity.user_profiles WHERE user_id = $1`, [userId]);
+        return gravarConvites(tx, viagemId, userId, perfis[0]?.display_name ?? 'Viajante 1', viagem[0]?.title ?? '', convites);
+      });
+    } catch (erro) {
+      return falhaDeConvite(erro);
+    }
+  }
+
+  async abrirConvite(userId: string, token: string): Promise<ConviteAberto | 'convite' | 'alheio' | 'usado'> {
+    const aberto = await this.comToken(userId, token, async (tx, convite) => {
+      void tx;
+      return abertoDe(convite);
     });
+    return aberto === 'pessoa' ? 'usado' : aberto;
+  }
+
+  async aceitarConvite(userId: string, token: string): Promise<{ tripId: string } | 'convite' | 'alheio' | 'usado' | 'pessoa'> {
+    return this.comToken(userId, token, async (tx, convite) => {
+      await tx.query(
+        `UPDATE travel.trip_invitations
+         SET status = 'accepted', accepted_at = clock_timestamp(), invited_user_id = $2
+         WHERE id = $1`,
+        [convite.id, userId],
+      );
+      await tx.query(
+        `UPDATE travel.trip_participants
+         SET user_id = $2, joined_at = clock_timestamp()
+         WHERE id = $1 AND removed_at IS NULL`,
+        [convite.participant_id, userId],
+      );
+      return { tripId: convite.trip_id };
+    });
+  }
+
+  async recusarConvite(userId: string, token: string): Promise<'ok' | 'convite' | 'alheio' | 'usado'> {
+    const resultado = await this.comToken(userId, token, async (tx, convite) => {
+      await tx.query(`UPDATE travel.trip_invitations SET status = 'declined', declined_at = clock_timestamp() WHERE id = $1`, [convite.id]);
+      await tx.query(`UPDATE travel.trip_participants SET removed_at = clock_timestamp() WHERE id = $1 AND removed_at IS NULL`, [convite.participant_id]);
+      return 'ok' as const;
+    });
+    return resultado === 'pessoa' ? 'usado' : resultado;
   }
 
   async carteira(donoId: string, filtro: FiltroDaCarteira): Promise<Carteira> {
@@ -224,6 +286,40 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
       return linhas.length === 0 ? await this.motivoDoNome(viagemId, participanteId) : 'ok';
     } catch (erro) {
       if (codigoDe(erro) === '23505') return 'duplicado';
+      throw erro;
+    }
+  }
+
+  private async comToken<T>(
+    userId: string,
+    token: string,
+    efeito: (tx: { query: DataSource['query'] }, convite: LinhaConvite) => Promise<T>,
+  ): Promise<T | 'convite' | 'alheio' | 'usado' | 'pessoa'> {
+    try {
+      return await this.dados.transaction(async (tx) => {
+        const linhas = await tx.query<LinhaConvite[]>(
+          `SELECT i.id, i.trip_id, i.participant_id, i.status::text AS status, i.invited_email,
+                  i.role::text AS role, tr.title, lower(caller.email) AS caller_email
+           FROM travel.trip_invitation_tokens tok
+           JOIN travel.trip_invitations i ON i.id = tok.invitation_id
+           JOIN travel.trips tr ON tr.id = i.trip_id AND tr.deleted_at IS NULL
+           JOIN identity.users caller ON caller.id = $2 AND caller.deleted_at IS NULL
+           WHERE tok.token_hash = $1
+           FOR UPDATE OF tok`,
+          [hashDe(token), userId],
+        );
+        const convite = linhas[0];
+        if (!convite) return 'convite';
+        if (convite.caller_email !== convite.invited_email.toLowerCase()) return 'alheio';
+        if (convite.status !== 'pending') return 'usado';
+        await tx.query(
+          `UPDATE travel.trip_invitation_tokens SET opened_at = COALESCE(opened_at, clock_timestamp()) WHERE invitation_id = $1`,
+          [convite.id],
+        );
+        return efeito(tx, convite);
+      });
+    } catch (erro) {
+      if (codigoDe(erro) === '23505') return 'pessoa';
       throw erro;
     }
   }
@@ -390,6 +486,118 @@ function linhasDe<T>(resultado: T[] | [T[], number]): T[] {
 
 function codigoDe(erro: unknown): string | undefined {
   return typeof erro === 'object' && erro !== null && 'code' in erro ? String((erro as { code: unknown }).code) : undefined;
+}
+
+interface LinhaConvite {
+  id: string;
+  trip_id: string;
+  participant_id: string;
+  status: string;
+  invited_email: string;
+  role: PapelDoConvite;
+  title: string;
+  caller_email: string;
+}
+
+class FalhaNaViagem extends Error {
+  constructor(readonly falha: 'pessoa' | 'duplicado') {
+    super(falha);
+  }
+}
+
+async function gravarConvites(
+  tx: { query: DataSource['query'] },
+  viagemId: string,
+  convidadoPor: string,
+  nomeDeQuemConvida: string,
+  titulo: string,
+  convites: ConviteNovo[],
+): Promise<ConviteParaEnviar[]> {
+  const enviados: ConviteParaEnviar[] = [];
+  const idiomaDeQuemConvida = await idiomaDe(tx, convidadoPor);
+  for (const convite of convites) {
+    const email = convite.email.trim().toLowerCase();
+    const nome = nomeDoEmail(convite.email);
+    const ocupado = await tx.query<{ id: string }[]>(
+      `SELECT id FROM travel.trip_participants
+       WHERE trip_id = $1 AND removed_at IS NULL AND lower(display_name) = lower($2)`,
+      [viagemId, nome],
+    );
+    if (ocupado.length > 0) throw new FalhaNaViagem('duplicado');
+    const pendente = await tx.query<{ id: string }[]>(
+      `SELECT id FROM travel.trip_invitations
+       WHERE trip_id = $1 AND lower(invited_email) = $2 AND status = 'pending'`,
+      [viagemId, email],
+    );
+    if (pendente.length > 0) throw new FalhaNaViagem('pessoa');
+    const contas = await tx.query<{ id: string; locale: IdiomaDoConvite }[]>(
+      `SELECT u.id,
+              CASE WHEN pref.locale IN ('pt-BR', 'pt-PT', 'en', 'es') THEN pref.locale ELSE 'pt-BR' END AS locale
+       FROM identity.users u
+       LEFT JOIN identity.user_preferences pref ON pref.user_id = u.id
+       WHERE lower(u.email) = $1 AND u.deleted_at IS NULL`,
+      [email],
+    );
+    const conta = contas[0];
+    if (conta) {
+      const jaEsta = await tx.query<{ id: string }[]>(
+        `SELECT id FROM travel.trip_participants WHERE trip_id = $1 AND user_id = $2 AND removed_at IS NULL`,
+        [viagemId, conta.id],
+      );
+      if (jaEsta.length > 0) throw new FalhaNaViagem('pessoa');
+    }
+    const pessoas = await tx.query<{ id: string }[]>(
+      `INSERT INTO travel.trip_participants (trip_id, display_name, party_kind, role, created_at)
+       VALUES ($1, $2, 'adult'::travel.party_kind, $3::travel.participant_role, clock_timestamp())
+       RETURNING id`,
+      [viagemId, nome, convite.role],
+    );
+    const convitesGravados = await tx.query<{ id: string }[]>(
+      `INSERT INTO travel.trip_invitations (
+         trip_id, participant_id, invited_by_user_id, invited_email, invited_user_id, channel, role
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'email'::travel.invitation_channel, $6::travel.participant_role
+       )
+       RETURNING id`,
+      [viagemId, pessoas[0].id, convidadoPor, email, conta?.id ?? null, convite.role],
+    );
+    const token = randomBytes(32).toString('base64url');
+    await tx.query(`INSERT INTO travel.trip_invitation_tokens (invitation_id, token_hash) VALUES ($1, $2)`, [convitesGravados[0].id, hashDe(token)]);
+    enviados.push({
+      email,
+      token,
+      idioma: conta ? conta.locale : idiomaDeQuemConvida,
+      nomeDeQuemConvida,
+      titulo,
+    });
+  }
+  return enviados;
+}
+
+async function idiomaDe(tx: { query: DataSource['query'] }, userId: string): Promise<IdiomaDoConvite> {
+  const linhas = await tx.query<{ locale: string }[]>(`SELECT locale FROM identity.user_preferences WHERE user_id = $1`, [userId]);
+  const locale = linhas[0]?.locale;
+  if (locale === 'pt-BR' || locale === 'pt-PT' || locale === 'en' || locale === 'es') return locale;
+  return 'pt-BR';
+}
+
+function nomeDoEmail(email: string): string {
+  const limpo = email.trim();
+  return limpo.slice(0, limpo.indexOf('@')).slice(0, 120);
+}
+
+function hashDe(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function abertoDe(convite: LinhaConvite): ConviteAberto {
+  return { tripId: convite.trip_id, tripTitle: convite.title, role: convite.role, status: 'pending' };
+}
+
+function falhaDeConvite(erro: unknown): 'pessoa' | 'duplicado' {
+  if (erro instanceof FalhaNaViagem) return erro.falha;
+  if (codigoDe(erro) === '23505') return 'pessoa';
+  throw erro;
 }
 
 function dataDe(valor: string | Date | null): string | null {

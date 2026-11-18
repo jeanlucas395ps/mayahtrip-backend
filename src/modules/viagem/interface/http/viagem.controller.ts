@@ -21,8 +21,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard, RequestComConta } from '../../../identidade/interface/http/guards/access-token.guard';
 import { ViagemUseCase } from '../../application/viagem.use-case';
-import { Carteira, FalhaViagem, ViagemLida } from '../../domain/ports/viagem.port';
-import { CriarViagemDto, RenomearParticipanteDto } from './dto/viagem.dto';
+import { Carteira, ConviteAberto, FalhaViagem, ViagemLida } from '../../domain/ports/viagem.port';
+import { ConviteDto, CriarViagemDto, RenomearParticipanteDto, TokenDeConviteDto } from './dto/viagem.dto';
 
 const LIMITE_MULTER = 10 * 1024 * 1024;
 
@@ -43,6 +43,12 @@ export class ViagemController {
   @HttpCode(HttpStatus.CREATED)
   async criar(@Req() request: RequestComConta, @Body(corpo(CriarViagemDto)) dto: CriarViagemDto): Promise<ViagemLida> {
     return responder(this.viagens.criar(request.contaId, dto));
+  }
+
+  @Post(':id/invitations')
+  @HttpCode(HttpStatus.CREATED)
+  async convidar(@Req() request: RequestComConta, @Param('id') id: string, @Body(corpo(ConviteDto)) dto: ConviteDto): Promise<ViagemLida> {
+    return responder(this.viagens.convidar(request.contaId, id, [dto]));
   }
 
   @Get(':id/cover')
@@ -84,6 +90,32 @@ export class ViagemController {
   }
 }
 
+@ApiTags('invitations')
+@Controller('invitations')
+@UseGuards(AccessTokenGuard)
+export class ConviteController {
+  constructor(@Inject(ViagemUseCase) private readonly viagens: ViagemUseCase) {}
+
+  @Post('open')
+  async abrir(@Req() request: RequestComConta, @Body(corpo(TokenDeConviteDto)) dto: TokenDeConviteDto): Promise<ConviteAberto> {
+    const aberto = await this.viagens.abrirConvite(request.contaId, dto.token);
+    if (typeof aberto === 'string') throw httpDe(aberto);
+    return aberto;
+  }
+
+  @Post('accept')
+  async aceitar(@Req() request: RequestComConta, @Body(corpo(TokenDeConviteDto)) dto: TokenDeConviteDto): Promise<ViagemLida> {
+    return responder(this.viagens.aceitarConvite(request.contaId, dto.token));
+  }
+
+  @Post('decline')
+  async recusar(@Req() request: RequestComConta, @Body(corpo(TokenDeConviteDto)) dto: TokenDeConviteDto): Promise<{ status: 'declined' }> {
+    const resultado = await this.viagens.recusarConvite(request.contaId, dto.token);
+    if (resultado !== 'ok') throw httpDe(resultado);
+    return { status: 'declined' };
+  }
+}
+
 async function responder(pedido: Promise<ViagemLida | FalhaViagem>): Promise<ViagemLida> {
   const resultado = await pedido;
   if (typeof resultado === 'string') throw httpDe(resultado);
@@ -105,6 +137,12 @@ function httpDe(falha: FalhaViagem): HttpException {
   if (falha === 'capa') return new HttpException({ message: 'Envie uma imagem JPG, PNG ou WebP.' }, HttpStatus.BAD_REQUEST);
   if (falha === 'proibido') return new HttpException({ message: 'Você não pode editar esta viagem.' }, HttpStatus.FORBIDDEN);
   if (falha === 'duplicado') return new HttpException({ message: 'Já existe alguém com esse nome nesta viagem.' }, HttpStatus.CONFLICT);
+  if (falha === 'email') return new HttpException({ message: 'Digite um e-mail válido.' }, HttpStatus.BAD_REQUEST);
+  if (falha === 'pessoa') return new HttpException({ message: 'Essa pessoa já está nesta viagem.' }, HttpStatus.CONFLICT);
+  if (falha === 'semConvite') return new HttpException({ message: 'Você não pode convidar para esta viagem.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'convite') return new HttpException({ message: 'Convite não encontrado.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'alheio') return new HttpException({ message: 'Este convite é de outra pessoa.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'usado') return new HttpException({ message: 'Este convite já foi usado.' }, HttpStatus.CONFLICT);
   return new HttpException({ message: 'A configuração da viagem não está disponível.' }, HttpStatus.INTERNAL_SERVER_ERROR);
 }
 

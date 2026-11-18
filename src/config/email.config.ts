@@ -6,6 +6,7 @@ export interface EmailConfig {
   user: string;
   password: string;
   from: string;
+  publicAppUrl: string;
 }
 
 /** Fornecedor fixado em ARCHITECTURE.md: SMTP Hostinger. */
@@ -15,4 +16,5 @@ export const emailConfig = registerAs('email', (): EmailConfig => ({
   user: process.env.SMTP_USER ?? '',
   password: process.env.SMTP_PASSWORD ?? '',
   from: process.env.SMTP_FROM as string,
+  publicAppUrl: process.env.APP_PUBLIC_URL ?? '',
 }));

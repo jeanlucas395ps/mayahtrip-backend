@@ -15,6 +15,7 @@ function montarCasoDeUso(overrides?: { contaJaExiste?: boolean }) {
   };
   const email: RemetenteDeEmail = {
     enviarCodigoDeVerificacao: vi.fn().mockResolvedValue(undefined),
+    enviarConvite: vi.fn().mockResolvedValue(undefined),
   };
   const relogio: Relogio = {
     agora: vi.fn().mockReturnValue(new Date('2026-11-16T15:00:00.000Z')),

@@ -1,14 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ARMAZENAMENTO, ArmazenamentoDeArquivo } from '../../identidade/domain/ports/armazenamento.port';
+import { REMETENTE_DE_EMAIL, RemetenteDeEmail } from '../../identidade/domain/ports/remetente-de-email.port';
 import { VisitasUseCase } from '../../identidade/application/use-cases/visitas.use-case';
+import { Idioma } from '../../identidade/domain/value-objects/idioma.vo';
 import {
   Carteira,
+  ConviteAberto,
+  ConviteNovo,
+  ConviteParaEnviar,
   CriarViagem,
   DestinoNovo,
   FalhaViagem,
   FiltroDaCarteira,
   ModoDeComeco,
+  PapelDoConvite,
   VIAGEM,
   ViagemLida,
   ViagemRepositorio,
@@ -17,6 +23,8 @@ import {
 const LIMITE_BYTES = 10 * 1024 * 1024;
 const MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const DIAS_SEM_ROTEIRO = 14;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PAPEIS_DE_CONVITE = new Set<PapelDoConvite>(['supreme_traveler', 'experienced_traveler', 'junior_assistant']);
 
 export interface NovaViagem {
   title?: string | null;
@@ -30,6 +38,7 @@ export interface NovaViagem {
   budgetAmount?: number | null;
   budgetCurrency?: string | null;
   destinations: { cityId?: string | null; customName?: string | null }[];
+  invites?: { email: string; role: PapelDoConvite }[];
 }
 
 @Injectable()
@@ -38,15 +47,43 @@ export class ViagemUseCase {
     @Inject(VIAGEM) private readonly viagens: ViagemRepositorio,
     @Inject(VisitasUseCase) private readonly visitas: VisitasUseCase,
     @Inject(ARMAZENAMENTO) private readonly arquivos: ArmazenamentoDeArquivo,
+    @Inject(REMETENTE_DE_EMAIL) private readonly remetente: RemetenteDeEmail,
   ) {}
 
   async criar(donoId: string, entrada: NovaViagem): Promise<ViagemLida | FalhaViagem> {
     const pronta = await this.normalizar(entrada);
     if (typeof pronta === 'string') return pronta;
-    const id = await this.viagens.criar({ ...pronta, ownerId: donoId });
-    await this.visitas.registrarDaViagem(id);
-    const ficha = await this.viagens.ficha(donoId, id);
+    const criada = await this.viagens.criar({ ...pronta, ownerId: donoId });
+    if (typeof criada === 'string') return criada;
+    await this.visitas.registrarDaViagem(criada.id);
+    await this.enviar(criada.convites);
+    const ficha = await this.viagens.ficha(donoId, criada.id);
     return ficha ?? 'ausente';
+  }
+
+  async convidar(userId: string, viagemId: string, convites: { email: string; role: PapelDoConvite }[]): Promise<ViagemLida | FalhaViagem> {
+    const prontos = prepararConvites(convites);
+    if (typeof prontos === 'string') return prontos;
+    const enviados = await this.viagens.convidar(userId, viagemId, prontos);
+    if (!Array.isArray(enviados)) return enviados;
+    await this.enviar(enviados);
+    const ficha = await this.viagens.ficha(userId, viagemId);
+    return ficha ?? 'ausente';
+  }
+
+  async abrirConvite(userId: string, token: string): Promise<ConviteAberto | FalhaViagem> {
+    return this.viagens.abrirConvite(userId, token);
+  }
+
+  async aceitarConvite(userId: string, token: string): Promise<ViagemLida | FalhaViagem> {
+    const aceito = await this.viagens.aceitarConvite(userId, token);
+    if (typeof aceito !== 'object') return aceito;
+    const ficha = await this.viagens.ficha(userId, aceito.tripId);
+    return ficha ?? 'ausente';
+  }
+
+  async recusarConvite(userId: string, token: string): Promise<'ok' | FalhaViagem> {
+    return this.viagens.recusarConvite(userId, token);
   }
 
   carteira(donoId: string, filtro: string | undefined): Promise<Carteira | 'filtro'> {
@@ -108,6 +145,9 @@ export class ViagemUseCase {
     if ((valor === null) !== (moeda === null)) return 'orcamento';
     if (moeda && !(await this.viagens.moedaAtiva(moeda))) return 'moeda';
 
+    const convites = prepararConvites(entrada.invites ?? []);
+    if (typeof convites === 'string') return convites;
+
     const titulo = entrada.title?.trim() || juntar(destinos, nomes);
     if (!titulo || titulo.length > 255) return 'nome';
 
@@ -123,7 +163,20 @@ export class ViagemUseCase {
       budgetAmount: valor,
       budgetCurrency: moeda,
       destinations: destinos,
+      invites: convites,
     };
+  }
+
+  private async enviar(convites: ConviteParaEnviar[]): Promise<void> {
+    for (const convite of convites) {
+      await this.remetente.enviarConvite({
+        paraEmail: convite.email,
+        nomeDeQuemConvida: convite.nomeDeQuemConvida,
+        viagem: convite.titulo,
+        token: convite.token,
+        idioma: new Idioma(convite.idioma),
+      });
+    }
   }
 
   private async periodo(entrada: NovaViagem): Promise<{ startDate: string | null; endDate: string | null; durationDays: number | null } | FalhaViagem> {
@@ -153,6 +206,20 @@ export class ViagemUseCase {
     if (dias > DIAS_SEM_ROTEIRO && entrada.startMode !== 'from_scratch') return 'modo';
     return { startDate: inicio, endDate: fim, durationDays: null };
   }
+}
+
+function prepararConvites(convites: { email: string; role: PapelDoConvite }[]): ConviteNovo[] | 'email' | 'pessoa' {
+  const vistos = new Set<string>();
+  const prontos: ConviteNovo[] = [];
+  for (const convite of convites) {
+    const email = convite.email.trim();
+    if (!EMAIL.test(email) || email.length > 255 || !PAPEIS_DE_CONVITE.has(convite.role)) return 'email';
+    const chave = email.toLowerCase();
+    if (vistos.has(chave)) return 'pessoa';
+    vistos.add(chave);
+    prontos.push({ email, role: convite.role });
+  }
+  return prontos;
 }
 
 function juntar(destinos: DestinoNovo[], nomes: Map<string, string>): string {

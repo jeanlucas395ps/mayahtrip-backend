@@ -3,7 +3,7 @@ import { ConfigType } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { emailConfig } from '../../../../config/email.config';
 import { signUpConfig } from '../../../../config/sign-up.config';
-import { EnviarCodigoDeVerificacaoParams, RemetenteDeEmail } from '../../domain/ports/remetente-de-email.port';
+import { EnviarCodigoDeVerificacaoParams, EnviarConviteParams, RemetenteDeEmail } from '../../domain/ports/remetente-de-email.port';
 import { obterI18nDeEmail } from './i18n';
 
 /**
@@ -55,6 +55,24 @@ export class SmtpRemetenteDeEmailAdapter implements RemetenteDeEmail {
       // DEVELOPMENT.md §9/§11: log sem corpo de e-mail nem código; só o
       // fato de ter falhado, para a métrica de erro por fornecedor externo.
       this.logger.error('Falha ao enviar e-mail de código de verificação', erro instanceof Error ? erro.stack : erro);
+      throw erro;
+    }
+  }
+
+  async enviarConvite(params: EnviarConviteParams): Promise<void> {
+    const i18n = await obterI18nDeEmail();
+    const t = i18n.getFixedT(params.idioma.valor);
+    const base = this.config.publicAppUrl.replace(/\/$/, '');
+    const link = base ? `${base}/convite/${params.token}` : `/convite/${params.token}`;
+    try {
+      await this.obterTransportador().sendMail({
+        from: this.config.from,
+        to: params.paraEmail,
+        subject: t('convite.assunto', { nome: params.nomeDeQuemConvida }),
+        text: t('convite.corpo', { nome: params.nomeDeQuemConvida, viagem: params.viagem, link }),
+      });
+    } catch (erro) {
+      this.logger.error('Falha ao enviar e-mail de convite', erro instanceof Error ? erro.stack : erro);
       throw erro;
     }
   }
