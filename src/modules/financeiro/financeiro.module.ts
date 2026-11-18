@@ -21,6 +21,6 @@ import { GastosController } from './interface/http/gastos.controller';
     { provide: FINANCEIRO, useClass: FinanceiroPgRepositorio },
     { provide: GASTOS, useClass: GastosPgRepositorio },
   ],
-  exports: [FinanceiroUseCase],
+  exports: [FinanceiroUseCase, GastosUseCase],
 })
 export class FinanceiroModule {}
