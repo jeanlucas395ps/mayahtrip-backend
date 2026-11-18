@@ -110,6 +110,12 @@ describe('Viagem (e2e, Postgres real)', () => {
       [0, `Lisboa ${marca}`],
       [1, `Porto ${marca}`],
     ]);
+    expect(criada.body.view).toEqual({ itinerary: true, edit: true, expenses: true, documents: true });
+    expect(criada.body.participants.map((item: { displayName: string; partyKind: string; role: string | null; userId: string | null; joined: boolean }) => [item.displayName, item.partyKind, item.role, item.userId, item.joined])).toEqual([
+      ['Pessoa E2E', 'adult', 'owner', dono.userId, true],
+      ['Viajante 1', 'adult', 'supreme_traveler', null, false],
+      ['Viajante 2', 'child', null, null, false],
+    ]);
 
     const tarde = await request(app.getHttpServer())
       .post('/v1/trips')
@@ -211,6 +217,91 @@ describe('Viagem (e2e, Postgres real)', () => {
     expect(visita).toEqual([]);
     const mapa = await request(app.getHttpServer()).get('/v1/me/visits').set(auth);
     expect(mapa.body.paisesPlanejados).toBe(1);
+  });
+
+  it('grava Viajante N, devolve a visão de cada papel e esconde quem saiu', async () => {
+    const dono = await entrar(app, enviarCodigoDeVerificacao);
+    const supremo = await entrar(app, enviarCodigoDeVerificacao);
+    const experiente = await entrar(app, enviarCodigoDeVerificacao);
+    const junior = await entrar(app, enviarCodigoDeVerificacao);
+    const fora = await entrar(app, enviarCodigoDeVerificacao);
+    const auth = { Authorization: `Bearer ${dono.access}` };
+    const marca = randomUUID().slice(0, 8);
+    const paisId = randomUUID();
+    const cidadeId = randomUUID();
+    await dados.query(`INSERT INTO geography.countries (id, name) VALUES ($1, $2)`, [paisId, `Pais ${marca}`]);
+    await dados.query(`INSERT INTO geography.cities (id, country_id, name) VALUES ($1, $2, $3)`, [cidadeId, paisId, `Cidade ${marca}`]);
+    const hoje = String((await dados.query<{ hoje: string }[]>(`SELECT CURRENT_DATE::text AS hoje`))[0].hoje).slice(0, 10);
+
+    const criada = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({
+        title: `Grupo ${marca}`,
+        startDate: somar(hoje, 3),
+        endDate: somar(hoje, 5),
+        startMode: 'from_scratch',
+        adultCount: 2,
+        childCount: 1,
+        destinations: [{ cityId: cidadeId }],
+      });
+    expect(criada.status).toBe(201);
+    const linhas = await dados.query<{ display_name: string; party_kind: string; role: string | null; user_id: string | null; joined_at: Date | null }[]>(
+      `SELECT display_name, party_kind::text, role::text, user_id, joined_at
+       FROM travel.trip_participants WHERE trip_id = $1 ORDER BY created_at`,
+      [criada.body.id],
+    );
+    expect(linhas).toEqual([
+      expect.objectContaining({ display_name: 'Pessoa E2E', party_kind: 'adult', role: 'owner', user_id: dono.userId }),
+      expect.objectContaining({ display_name: 'Viajante 1', party_kind: 'adult', role: 'supreme_traveler', user_id: null, joined_at: null }),
+      expect.objectContaining({ display_name: 'Viajante 2', party_kind: 'child', role: null, user_id: null, joined_at: null }),
+    ]);
+    expect(linhas[0].joined_at).not.toBeNull();
+
+    const viajante = criada.body.participants.find((item: { displayName: string }) => item.displayName === 'Viajante 1');
+    const renomeado = await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${viajante.id}`).set(auth).send({ displayName: 'Ana' });
+    expect(renomeado.status).toBe(200);
+    expect(renomeado.body.participants.map((item: { displayName: string }) => item.displayName)).toContain('Ana');
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${viajante.id}`).set(auth).send({ displayName: 'pessoa e2e' })).status).toBe(409);
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${viajante.id}`).set(auth).send({ displayName: '   ' })).status).toBe(400);
+
+    await dados.query(
+      `INSERT INTO travel.trip_participants (trip_id, user_id, display_name, party_kind, role, joined_at)
+       VALUES ($1, $2, 'Supremo', 'adult'::travel.party_kind, 'supreme_traveler'::travel.participant_role, now()),
+              ($1, $3, 'Experiente', 'adult'::travel.party_kind, 'experienced_traveler'::travel.participant_role, now()),
+              ($1, $4, 'Junior', 'adult'::travel.party_kind, 'junior_assistant'::travel.participant_role, now())`,
+      [criada.body.id, supremo.userId, experiente.userId, junior.userId],
+    );
+
+    const vistaSupremo = await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${supremo.access}`);
+    expect(vistaSupremo.status).toBe(200);
+    expect(vistaSupremo.body.view).toEqual({ itinerary: true, edit: true, expenses: true, documents: true });
+
+    const vistaExperiente = await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${experiente.access}`);
+    expect(vistaExperiente.status).toBe(200);
+    expect(vistaExperiente.body.view).toEqual({ itinerary: true, edit: true, expenses: true, documents: false });
+    const carteiraExperiente = await request(app.getHttpServer()).get('/v1/trips').set('Authorization', `Bearer ${experiente.access}`);
+    expect(carteiraExperiente.body.trips.map((item: { id: string }) => item.id)).toContain(criada.body.id);
+    expect(carteiraExperiente.body.counts.all).toBe(1);
+
+    const vistaJunior = await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${junior.access}`);
+    expect(vistaJunior.body.view).toEqual({ itinerary: true, edit: false, expenses: false, documents: false });
+    const foto = Buffer.from('capa-do-junior');
+    const capaJunior = await request(app.getHttpServer())
+      .post(`/v1/trips/${criada.body.id}/cover`)
+      .set('Authorization', `Bearer ${junior.access}`)
+      .attach('arquivo', foto, { filename: 'capa.jpg', contentType: 'image/jpeg' });
+    expect(capaJunior.status).toBe(403);
+    expect(capaJunior.body.message).toBe('Você não pode editar esta viagem.');
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${viajante.id}`).set('Authorization', `Bearer ${junior.access}`).send({ displayName: 'Outro' })).status).toBe(403);
+
+    await dados.query(`UPDATE travel.trip_participants SET removed_at = now() WHERE trip_id = $1 AND user_id = $2`, [criada.body.id, junior.userId]);
+    expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${junior.access}`)).status).toBe(404);
+    const carteiraJunior = await request(app.getHttpServer()).get('/v1/trips').set('Authorization', `Bearer ${junior.access}`);
+    expect(carteiraJunior.body.trips).toEqual([]);
+    expect(carteiraJunior.body.counts).toEqual({ all: 0, upcoming: 0, drafts: 0 });
+    expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${fora.access}`)).status).toBe(404);
+    expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set(auth)).status).toBe(200);
   });
 });
 

@@ -3,7 +3,8 @@ export const VIAGEM = Symbol('VIAGEM');
 export type ModoDeComeco = 'suggested' | 'community' | 'from_scratch';
 export type StatusDoCartao = 'draft' | 'upcoming' | 'happening' | 'finished';
 export type FiltroDaCarteira = 'todas' | 'proximas' | 'rascunhos';
-export type FalhaViagem = 'ausente' | 'cidade' | 'destino' | 'data' | 'dias' | 'modo' | 'moeda' | 'orcamento' | 'nome' | 'config' | 'capa';
+export type FalhaViagem = 'ausente' | 'cidade' | 'destino' | 'data' | 'dias' | 'modo' | 'moeda' | 'orcamento' | 'nome' | 'duplicado' | 'config' | 'capa' | 'proibido';
+export type Papel = 'owner' | 'supreme_traveler' | 'experienced_traveler' | 'junior_assistant';
 
 export interface DestinoNovo {
   cityId: string | null;
@@ -36,6 +37,22 @@ export interface DestinoLido {
   sortOrder: number;
 }
 
+export interface ParticipanteLido {
+  id: string;
+  userId: string | null;
+  displayName: string;
+  partyKind: 'adult' | 'child';
+  role: Papel | null;
+  joined: boolean;
+}
+
+export interface VisaoDaViagem {
+  itinerary: true;
+  edit: boolean;
+  expenses: boolean;
+  documents: boolean;
+}
+
 export interface ViagemLida {
   id: string;
   title: string;
@@ -55,6 +72,8 @@ export interface ViagemLida {
   hasCover: boolean;
   destinationCount: number;
   destinations: DestinoLido[];
+  participants: ParticipanteLido[];
+  view: VisaoDaViagem;
 }
 
 export interface Carteira {
@@ -70,6 +89,7 @@ export interface ViagemRepositorio {
   criar(entrada: CriarViagem): Promise<string>;
   carteira(donoId: string, filtro: FiltroDaCarteira): Promise<Carteira>;
   ficha(donoId: string, viagemId: string): Promise<ViagemLida | null>;
-  guardarCapa(donoId: string, viagemId: string, chave: string): Promise<string | null | 'ausente'>;
+  guardarCapa(donoId: string, viagemId: string, chave: string): Promise<string | null | 'ausente' | 'proibido'>;
   chaveDaCapa(donoId: string, viagemId: string): Promise<string | null | 'ausente'>;
+  renomear(userId: string, viagemId: string, participanteId: string, nome: string): Promise<'ok' | 'ausente' | 'proibido' | 'duplicado'>;
 }

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   HttpCode,
   HttpException,
   HttpStatus,
@@ -21,7 +22,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard, RequestComConta } from '../../../identidade/interface/http/guards/access-token.guard';
 import { ViagemUseCase } from '../../application/viagem.use-case';
 import { Carteira, FalhaViagem, ViagemLida } from '../../domain/ports/viagem.port';
-import { CriarViagemDto } from './dto/viagem.dto';
+import { CriarViagemDto, RenomearParticipanteDto } from './dto/viagem.dto';
 
 const LIMITE_MULTER = 10 * 1024 * 1024;
 
@@ -65,6 +66,16 @@ export class ViagemController {
     return responder(this.viagens.guardarCapa(request.contaId, id, arquivo.buffer, arquivo.mimetype));
   }
 
+  @Patch(':id/participants/:participantId')
+  async renomear(
+    @Req() request: RequestComConta,
+    @Param('id') id: string,
+    @Param('participantId') participantId: string,
+    @Body(corpo(RenomearParticipanteDto)) dto: RenomearParticipanteDto,
+  ): Promise<ViagemLida> {
+    return responder(this.viagens.renomear(request.contaId, id, participantId, dto.displayName));
+  }
+
   @Get(':id')
   async ficha(@Req() request: RequestComConta, @Param('id') id: string): Promise<ViagemLida> {
     const ficha = await this.viagens.ficha(request.contaId, id);
@@ -92,6 +103,8 @@ function httpDe(falha: FalhaViagem): HttpException {
   if (falha === 'orcamento') return new HttpException({ message: 'Informe o valor e a moeda do orçamento.' }, HttpStatus.BAD_REQUEST);
   if (falha === 'nome') return new HttpException({ message: 'O nome da viagem passou de 255 caracteres.' }, HttpStatus.BAD_REQUEST);
   if (falha === 'capa') return new HttpException({ message: 'Envie uma imagem JPG, PNG ou WebP.' }, HttpStatus.BAD_REQUEST);
+  if (falha === 'proibido') return new HttpException({ message: 'Você não pode editar esta viagem.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'duplicado') return new HttpException({ message: 'Já existe alguém com esse nome nesta viagem.' }, HttpStatus.CONFLICT);
   return new HttpException({ message: 'A configuração da viagem não está disponível.' }, HttpStatus.INTERNAL_SERVER_ERROR);
 }
 

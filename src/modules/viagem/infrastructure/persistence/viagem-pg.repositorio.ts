@@ -1,11 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { visaoDe } from '../../domain/visao';
 import {
   Carteira,
   CriarViagem,
   DestinoLido,
   FiltroDaCarteira,
   ModoDeComeco,
+  Papel,
+  ParticipanteLido,
   StatusDoCartao,
   ViagemLida,
   ViagemRepositorio,
@@ -29,6 +32,17 @@ interface LinhaViagem {
   budget_currency: string | null;
   has_cover: boolean;
   destination_count: number | string;
+  caller_role: Papel | null;
+}
+
+interface LinhaParticipante {
+  id: string;
+  trip_id: string;
+  user_id: string | null;
+  display_name: string;
+  party_kind: 'adult' | 'child';
+  role: Papel | null;
+  joined: boolean;
 }
 
 interface LinhaDestino {
@@ -53,6 +67,14 @@ const DIAS = `CASE
   WHEN t.start_date IS NOT NULL THEN (t.end_date - t.start_date + 1)
   ELSE t.duration_days
 END`;
+
+const ACESSO = `(
+  t.owner_user_id = $1
+  OR EXISTS (
+    SELECT 1 FROM travel.trip_participants acesso
+    WHERE acesso.trip_id = t.id AND acesso.user_id = $1 AND acesso.removed_at IS NULL
+  )
+)`;
 
 @Injectable()
 export class ViagemPgRepositorio implements ViagemRepositorio {
@@ -115,6 +137,11 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
         ],
       );
       const id = criadas[0].id;
+      const perfis = await tx.query<{ display_name: string }[]>(
+        `SELECT display_name FROM identity.user_profiles WHERE user_id = $1`,
+        [entrada.ownerId],
+      );
+      await gravarParticipantes(tx, id, entrada.ownerId, perfis[0]?.display_name ?? 'Viajante 1', entrada.adultCount, entrada.childCount);
       for (const [ordem, destino] of entrada.destinations.entries()) {
         await tx.query(
           `INSERT INTO travel.trip_destinations (trip_id, city_id, custom_name, sort_order) VALUES ($1, $2, $3, $4)`,
@@ -133,7 +160,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
          count(*) FILTER (WHERE ${STATUS} IN ('upcoming', 'happening'))::text AS proximas,
          count(*) FILTER (WHERE ${STATUS} = 'draft')::text AS rascunhos
        FROM travel.trips t
-       WHERE t.owner_user_id = $1 AND t.deleted_at IS NULL`,
+       WHERE t.deleted_at IS NULL AND ${ACESSO}`,
       [donoId],
     );
     return {
@@ -151,27 +178,63 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
     return viagens[0] ?? null;
   }
 
-  async guardarCapa(donoId: string, viagemId: string, chave: string): Promise<string | null | 'ausente'> {
+  async guardarCapa(donoId: string, viagemId: string, chave: string): Promise<string | null | 'ausente' | 'proibido'> {
     return this.dados.transaction(async (tx) => {
+      const papel = await papelDe(tx, viagemId, donoId, true);
+      if (papel === 'ausente') return 'ausente';
+      if (!visaoDe(papel).edit) return 'proibido';
       const atuais = await tx.query<{ cover_storage_key: string | null }[]>(
-        `SELECT cover_storage_key FROM travel.trips
-         WHERE id = $1 AND owner_user_id = $2 AND deleted_at IS NULL
-         FOR UPDATE`,
-        [viagemId, donoId],
+        `SELECT cover_storage_key FROM travel.trips WHERE id = $1`,
+        [viagemId],
       );
-      if (atuais.length === 0) return 'ausente';
       await tx.query(`UPDATE travel.trips SET cover_storage_key = $2, updated_at = now() WHERE id = $1`, [viagemId, chave]);
-      return atuais[0].cover_storage_key;
+      return atuais[0]?.cover_storage_key ?? null;
     });
   }
 
   async chaveDaCapa(donoId: string, viagemId: string): Promise<string | null | 'ausente'> {
+    const papel = await papelDe(this.dados, viagemId, donoId, false);
+    if (papel === 'ausente') return 'ausente';
     const linhas = await this.dados.query<{ cover_storage_key: string | null }[]>(
-      `SELECT cover_storage_key FROM travel.trips WHERE id = $1 AND owner_user_id = $2 AND deleted_at IS NULL`,
-      [viagemId, donoId],
+      `SELECT cover_storage_key FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
+      [viagemId],
     );
-    if (linhas.length === 0) return 'ausente';
-    return linhas[0].cover_storage_key;
+    return linhas[0]?.cover_storage_key ?? null;
+  }
+
+  async renomear(userId: string, viagemId: string, participanteId: string, nome: string): Promise<'ok' | 'ausente' | 'proibido' | 'duplicado'> {
+    const papel = await papelDe(this.dados, viagemId, userId, false);
+    if (papel === 'ausente') return 'ausente';
+    if (!visaoDe(papel).edit) return 'proibido';
+    try {
+      const linhas = linhasDe(
+        await this.dados.query<{ id: string }[] | [{ id: string }[], number]>(
+          `UPDATE travel.trip_participants
+           SET display_name = $3
+           WHERE id = $1 AND trip_id = $2 AND removed_at IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM travel.trip_participants outro
+               WHERE outro.trip_id = $2 AND outro.removed_at IS NULL AND outro.id <> $1
+                 AND lower(outro.display_name) = lower($3)
+             )
+           RETURNING id`,
+          [participanteId, viagemId, nome],
+        ),
+      );
+      return linhas.length === 0 ? await this.motivoDoNome(viagemId, participanteId) : 'ok';
+    } catch (erro) {
+      if (codigoDe(erro) === '23505') return 'duplicado';
+      throw erro;
+    }
+  }
+
+  private async motivoDoNome(viagemId: string, participanteId: string): Promise<'ausente' | 'duplicado'> {
+    const linhas = await this.dados.query<{ id: string }[]>(
+      `SELECT id FROM travel.trip_participants
+       WHERE id = $1 AND trip_id = $2 AND removed_at IS NULL`,
+      [participanteId, viagemId],
+    );
+    return linhas.length === 0 ? 'ausente' : 'duplicado';
   }
 
   private async listar(donoId: string, filtro: FiltroDaCarteira, viagemId?: string): Promise<ViagemLida[]> {
@@ -183,9 +246,12 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
               CASE WHEN ${STATUS} = 'upcoming' THEN (t.start_date - CURRENT_DATE) ELSE NULL END AS days_until,
               t.visibility, t.start_mode, t.adult_count, t.child_count, t.budget_amount::text AS budget_amount,
               t.budget_currency, (t.cover_storage_key IS NOT NULL) AS has_cover,
-              (SELECT count(*) FROM travel.trip_destinations d WHERE d.trip_id = t.id) AS destination_count
+              (SELECT count(*) FROM travel.trip_destinations d WHERE d.trip_id = t.id) AS destination_count,
+              (SELECT p.role::text FROM travel.trip_participants p
+               WHERE p.trip_id = t.id AND p.user_id = $1 AND p.removed_at IS NULL
+               LIMIT 1) AS caller_role
        FROM travel.trips t
-       WHERE t.owner_user_id = $1 AND t.deleted_at IS NULL
+       WHERE t.deleted_at IS NULL AND ${ACESSO}
          AND ($2::uuid IS NULL OR t.id = $2)
          ${filtroSql}
        ORDER BY t.start_date ASC NULLS LAST, t.id`,
@@ -216,6 +282,27 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
       });
       porViagem.set(destino.trip_id, lista);
     }
+    const participantes = await this.dados.query<LinhaParticipante[]>(
+      `SELECT id, trip_id, user_id, display_name, party_kind::text AS party_kind, role::text AS role,
+              (joined_at IS NOT NULL) AS joined
+       FROM travel.trip_participants
+       WHERE trip_id = ANY($1::uuid[]) AND removed_at IS NULL
+       ORDER BY CASE WHEN role = 'owner' THEN 0 WHEN party_kind = 'child' THEN 2 ELSE 1 END, created_at, id`,
+      [linhas.map((linha) => linha.id)],
+    );
+    const pessoas = new Map<string, ParticipanteLido[]>();
+    for (const pessoa of participantes) {
+      const lista = pessoas.get(pessoa.trip_id) ?? [];
+      lista.push({
+        id: pessoa.id,
+        userId: pessoa.user_id,
+        displayName: pessoa.display_name,
+        partyKind: pessoa.party_kind,
+        role: pessoa.role,
+        joined: pessoa.joined,
+      });
+      pessoas.set(pessoa.trip_id, lista);
+    }
     return linhas.map((linha) => ({
       id: linha.id,
       title: linha.title,
@@ -235,8 +322,74 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
       hasCover: linha.has_cover,
       destinationCount: Number(linha.destination_count),
       destinations: porViagem.get(linha.id) ?? [],
+      participants: pessoas.get(linha.id) ?? [],
+      view: visaoDe(linha.caller_role ?? 'owner'),
     }));
   }
+}
+
+async function gravarParticipantes(
+  tx: { query: DataSource['query'] },
+  viagemId: string,
+  donoId: string,
+  nomeDoDono: string,
+  adultos: number,
+  criancas: number,
+): Promise<void> {
+  const usados = new Set([nomeDoDono.trim().toLowerCase()]);
+  const proximo = (): string => {
+    let numero = 1;
+    while (usados.has(`viajante ${numero}`)) numero += 1;
+    const nome = `Viajante ${numero}`;
+    usados.add(nome.toLowerCase());
+    return nome;
+  };
+  await tx.query(
+    `INSERT INTO travel.trip_participants (trip_id, user_id, display_name, party_kind, role, joined_at, created_at)
+     VALUES ($1, $2, $3, 'adult'::travel.party_kind, 'owner'::travel.participant_role, clock_timestamp(), clock_timestamp())`,
+    [viagemId, donoId, nomeDoDono.trim() || proximo()],
+  );
+  for (let i = 1; i < adultos; i += 1) {
+    await tx.query(
+      `INSERT INTO travel.trip_participants (trip_id, display_name, party_kind, role, created_at)
+       VALUES ($1, $2, 'adult'::travel.party_kind, 'supreme_traveler'::travel.participant_role, clock_timestamp())`,
+      [viagemId, proximo()],
+    );
+  }
+  for (let i = 0; i < criancas; i += 1) {
+    await tx.query(
+      `INSERT INTO travel.trip_participants (trip_id, display_name, party_kind, role, created_at)
+       VALUES ($1, $2, 'child'::travel.party_kind, NULL, clock_timestamp())`,
+      [viagemId, proximo()],
+    );
+  }
+}
+
+async function papelDe(
+  tx: { query: DataSource['query'] },
+  viagemId: string,
+  userId: string,
+  travar: boolean,
+): Promise<Papel | 'ausente'> {
+  const linhas = await tx.query<{ role: Papel | null }[]>(
+    `SELECT p.role::text AS role
+     FROM travel.trips t
+     LEFT JOIN travel.trip_participants p ON p.trip_id = t.id AND p.user_id = $2 AND p.removed_at IS NULL
+     WHERE t.id = $1 AND t.deleted_at IS NULL
+       AND (t.owner_user_id = $2 OR p.id IS NOT NULL)
+     ${travar ? 'FOR UPDATE OF t' : ''}`,
+    [viagemId, userId],
+  );
+  if (linhas.length === 0) return 'ausente';
+  return linhas[0].role ?? 'owner';
+}
+
+function linhasDe<T>(resultado: T[] | [T[], number]): T[] {
+  return Array.isArray(resultado[0]) ? resultado[0] : (resultado as T[]);
+}
+
+function codigoDe(erro: unknown): string | undefined {
+  return typeof erro === 'object' && erro !== null && 'code' in erro ? String((erro as { code: unknown }).code) : undefined;
 }
 
 function dataDe(valor: string | Date | null): string | null {

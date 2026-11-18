@@ -66,12 +66,19 @@ export class ViagemUseCase {
     const chave = `viagens/${viagemId}/capa-${randomUUID()}`;
     await this.arquivos.guardar(chave, bytes, mime);
     const anterior = await this.viagens.guardarCapa(donoId, viagemId, chave);
-    if (anterior === 'ausente') {
+    if (anterior === 'ausente' || anterior === 'proibido') {
       await this.arquivos.apagar(chave);
-      return 'ausente';
+      return anterior;
     }
     if (anterior) await this.arquivos.apagar(anterior);
     const ficha = await this.viagens.ficha(donoId, viagemId);
+    return ficha ?? 'ausente';
+  }
+
+  async renomear(userId: string, viagemId: string, participanteId: string, nome: string): Promise<ViagemLida | FalhaViagem> {
+    const resultado = await this.viagens.renomear(userId, viagemId, participanteId, nome.trim());
+    if (resultado !== 'ok') return resultado;
+    const ficha = await this.viagens.ficha(userId, viagemId);
     return ficha ?? 'ausente';
   }
 
