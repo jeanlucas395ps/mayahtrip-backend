@@ -19,6 +19,7 @@ import { CorrelationIdMiddleware } from './common/logging/correlation-id.middlew
 import { MetricsInterceptor } from './common/logging/metrics.interceptor';
 import { MetricsModule } from './common/logging/metrics.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { GeografiaModule } from './modules/geografia/geografia.module';
 import { IdentidadeModule } from './modules/identidade/identidade.module';
 
 @Module({
@@ -58,6 +59,7 @@ import { IdentidadeModule } from './modules/identidade/identidade.module';
     MetricsModule,
     IdentidadeModule,
     AdminModule,
+    GeografiaModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
