@@ -16,12 +16,14 @@ import {
 } from './application/use-cases/recuperar-senha.use-case';
 import { PerfilUseCase } from './application/use-cases/perfil.use-case';
 import { DocumentoUseCase } from './application/use-cases/documento.use-case';
+import { VisitasUseCase } from './application/use-cases/visitas.use-case';
 import { PreferenciaUseCase } from './application/use-cases/preferencia.use-case';
 import { SessaoDeAcesso } from './application/sessao-de-acesso';
 import { ARMAZENAMENTO } from './domain/ports/armazenamento.port';
 import { CODIGO_HANDOFF_REPOSITORIO } from './domain/ports/codigo-handoff-repositorio.port';
 import { CONTA_REPOSITORIO } from './domain/ports/conta-repositorio.port';
 import { DOCUMENTO_REPOSITORIO } from './domain/ports/documento-repositorio.port';
+import { VISITA_REPOSITORIO } from './domain/ports/visita-repositorio.port';
 import { HASH_DE_SENHA } from './domain/ports/hash-de-senha.port';
 import { LISTA_DE_REVOGACAO } from './domain/ports/lista-de-revogacao.port';
 import { LOCALIZADOR } from './domain/ports/localizador.port';
@@ -39,6 +41,7 @@ import { IpapiLocalizador } from './infrastructure/location/ipapi-localizador';
 import { CodigoHandoffTypeOrmRepositorio } from './infrastructure/persistence/repositories/codigo-handoff-typeorm.repositorio';
 import { ContaTypeOrmRepositorio } from './infrastructure/persistence/repositories/conta-typeorm.repositorio';
 import { DocumentoTypeOrmRepositorio } from './infrastructure/persistence/repositories/documento-typeorm.repositorio';
+import { VisitaTypeOrmRepositorio } from './infrastructure/persistence/repositories/visita-typeorm.repositorio';
 import { PerfilTypeOrmRepositorio } from './infrastructure/persistence/repositories/perfil-typeorm.repositorio';
 import { PreferenciaTypeOrmRepositorio } from './infrastructure/persistence/repositories/preferencia-typeorm.repositorio';
 import { RecuperacaoDeSenhaTypeOrmRepositorio } from './infrastructure/persistence/repositories/recuperacao-de-senha-typeorm.repositorio';
@@ -51,6 +54,7 @@ import { SistemaRelogioAdapter } from './infrastructure/time/sistema-relogio.ada
 import { AuthController } from './interface/http/controllers/auth.controller';
 import { MeuPerfilController, PerfilPublicoController } from './interface/http/controllers/perfil.controller';
 import { DocumentoController } from './interface/http/controllers/documento.controller';
+import { VisitasController } from './interface/http/controllers/visitas.controller';
 import { PreferenciaController } from './interface/http/controllers/preferencia.controller';
 import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/guards/access-token.guard';
 
@@ -66,7 +70,7 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
       }),
     }),
   ],
-  controllers: [AuthController, MeuPerfilController, PerfilPublicoController, PreferenciaController, DocumentoController],
+  controllers: [AuthController, MeuPerfilController, PerfilPublicoController, PreferenciaController, DocumentoController, VisitasController],
   providers: [
     CriarContaUseCase,
     ConfirmarContaUseCase,
@@ -81,6 +85,7 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
     PerfilUseCase,
     PreferenciaUseCase,
     DocumentoUseCase,
+    VisitasUseCase,
     SessaoDeAcesso,
     AccessTokenGuard,
     AccessTokenOpcionalGuard,
@@ -89,6 +94,7 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
     { provide: PERFIL_REPOSITORIO, useClass: PerfilTypeOrmRepositorio },
     { provide: PREFERENCIA_REPOSITORIO, useClass: PreferenciaTypeOrmRepositorio },
     { provide: DOCUMENTO_REPOSITORIO, useClass: DocumentoTypeOrmRepositorio },
+    { provide: VISITA_REPOSITORIO, useClass: VisitaTypeOrmRepositorio },
     { provide: LOCALIZADOR, useClass: IpapiLocalizador },
     { provide: ARMAZENAMENTO, useClass: GcsArmazenamento },
     { provide: PREPARADOR_DE_AVATAR, useClass: SharpPreparadorDeAvatar },
