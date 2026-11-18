@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Inject, Param, Post, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpException, HttpStatus, Inject, Param, Post, Req, UseGuards, ValidationPipe } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard, RequestComConta } from '../../../identidade/interface/http/guards/access-token.guard';
 import { RoteiroUseCase } from '../../application/roteiro.use-case';
@@ -46,8 +46,15 @@ export class RoteiroController {
 
   @Post('generate')
   @HttpCode(HttpStatus.ACCEPTED)
-  async gerar(@Req() request: RequestComConta, @Param('id') id: string, @Body(corpo(GerarDto)) dto: GerarDto): Promise<GeracaoLida> {
-    return responderGeracao(this.roteiros.gerar(request.contaId, id, dto ?? {}));
+  async gerar(
+    @Req() request: RequestComConta,
+    @Param('id') id: string,
+    @Body(corpo(GerarDto)) dto: GerarDto,
+    @Headers('idempotency-key') chave?: string,
+  ): Promise<GeracaoLida> {
+    const normalizada = normalizarChave(chave);
+    if (normalizada === 'invalida') throw new HttpException({ message: 'A chave de idempotência é inválida.' }, HttpStatus.BAD_REQUEST);
+    return responderGeracao(this.roteiros.gerar(request.contaId, id, dto ?? {}, normalizada));
   }
 
   @Post('optimize')
@@ -86,6 +93,13 @@ function httpDe(falha: FalhaRoteiro): HttpException {
   if (falha === 'destino') return new HttpException({ message: 'Destino não encontrado.' }, HttpStatus.NOT_FOUND);
   if (falha === 'roteiro') return new HttpException({ message: 'A viagem ainda não tem roteiro.' }, HttpStatus.NOT_FOUND);
   return new HttpException({ message: 'Viagens com mais de 14 dias não geram roteiro automático.' }, HttpStatus.CONFLICT);
+}
+
+function normalizarChave(chave?: string): string | null | 'invalida' {
+  if (!chave || chave.trim() === '') return null;
+  const valor = chave.trim();
+  if (!/^[A-Za-z0-9._:-]{8,255}$/.test(valor)) return 'invalida';
+  return valor;
 }
 
 function corpo<T>(tipo: new () => T): ValidationPipe {

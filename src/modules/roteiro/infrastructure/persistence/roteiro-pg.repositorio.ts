@@ -116,37 +116,63 @@ export class RoteiroPgRepositorio implements RoteiroRepositorio {
     return this.montar(viagemId);
   }
 
-  async gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao): Promise<GeracaoLida | FalhaRoteiro> {
+  async gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao, chave?: string | null): Promise<GeracaoLida | FalhaRoteiro> {
     const edicao = await this.podeEditar(viagemId, userId);
     if (edicao !== 'ok') return edicao;
-    return this.dados.transaction(async (tx) => {
-      const viagens = await tx.query<{ dias: number; start_date: string | null }[]>(
-        `SELECT CASE WHEN start_date IS NOT NULL THEN (end_date - start_date + 1) ELSE duration_days END AS dias,
-                start_date::text AS start_date
-         FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
-        [viagemId],
-      );
-      if (viagens.length === 0) return 'ausente';
-      if (Number(viagens[0].dias) > 14) return 'longa';
-      const entrada = { interests: pedido.interests ?? [], pace: pedido.pace ?? null };
-      const jobs = await tx.query<{ id: string }[]>(
-        `INSERT INTO itinerary.itinerary_generation_jobs (trip_id, requested_by_user_id, status, input_data, started_at, finished_at)
-         VALUES ($1, $2, 'completed', $3::jsonb, clock_timestamp(), clock_timestamp()) RETURNING id`,
-        [viagemId, userId, JSON.stringify(entrada)],
-      );
-      const roteiroId = await garantirDias(tx, viagemId, userId, Number(viagens[0].dias), viagens[0].start_date);
-      await tx.query(
-        `INSERT INTO itinerary.itinerary_generation_results (job_id, itinerary_id, result_data)
-         VALUES ($1, $2, $3::jsonb)`,
-        [jobs[0].id, roteiroId, JSON.stringify({ filledBy: 'none' })],
-      );
-      await tx.query(
-        `INSERT INTO platform.outbox_events (aggregate_type, aggregate_id, event_type, payload)
-         VALUES ('itinerary_generation_job', $1, 'itinerary_generation_requested', $2::jsonb)`,
-        [jobs[0].id, JSON.stringify({ tripId: viagemId, itineraryId: roteiroId })],
-      );
-      return { jobId: jobs[0].id, status: 'completed', itineraryId: roteiroId };
-    });
+    try {
+      return await this.dados.transaction(async (tx) => {
+        if (chave) {
+          const guardadas = await tx.query<{ response_body: GeracaoLida }[]>(
+            `SELECT response_body FROM platform.idempotency_keys WHERE idempotency_key = $1 AND scope = 'itinerary.generate'`,
+            [chave],
+          );
+          if (guardadas[0]) return guardadas[0].response_body;
+        }
+        const viagens = await tx.query<{ dias: number; start_date: string | null }[]>(
+          `SELECT CASE WHEN start_date IS NOT NULL THEN (end_date - start_date + 1) ELSE duration_days END AS dias,
+                  start_date::text AS start_date
+           FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
+          [viagemId],
+        );
+        if (viagens.length === 0) return 'ausente';
+        if (Number(viagens[0].dias) > 14) return 'longa';
+        const entrada = { interests: pedido.interests ?? [], pace: pedido.pace ?? null };
+        const jobs = await tx.query<{ id: string }[]>(
+          `INSERT INTO itinerary.itinerary_generation_jobs (trip_id, requested_by_user_id, status, input_data, started_at, finished_at)
+           VALUES ($1, $2, 'completed', $3::jsonb, clock_timestamp(), clock_timestamp()) RETURNING id`,
+          [viagemId, userId, JSON.stringify(entrada)],
+        );
+        const roteiroId = await garantirDias(tx, viagemId, userId, Number(viagens[0].dias), viagens[0].start_date);
+        await tx.query(
+          `INSERT INTO itinerary.itinerary_generation_results (job_id, itinerary_id, result_data)
+           VALUES ($1, $2, $3::jsonb)`,
+          [jobs[0].id, roteiroId, JSON.stringify({ filledBy: 'none' })],
+        );
+        await tx.query(
+          `INSERT INTO platform.outbox_events (aggregate_type, aggregate_id, event_type, payload)
+           VALUES ('itinerary_generation_job', $1, 'itinerary_generation_requested', $2::jsonb)`,
+          [jobs[0].id, JSON.stringify({ tripId: viagemId, itineraryId: roteiroId })],
+        );
+        const resposta: GeracaoLida = { jobId: jobs[0].id, status: 'completed', itineraryId: roteiroId };
+        if (chave) {
+          await tx.query(
+            `INSERT INTO platform.idempotency_keys (idempotency_key, scope, response_status, response_body)
+             VALUES ($1, 'itinerary.generate', 202, $2::jsonb)`,
+            [chave, JSON.stringify(resposta)],
+          );
+        }
+        return resposta;
+      });
+    } catch (erro) {
+      if (chave && codigoDe(erro) === '23505') {
+        const linhas = await this.dados.query<{ response_body: GeracaoLida }[]>(
+          `SELECT response_body FROM platform.idempotency_keys WHERE idempotency_key = $1 AND scope = 'itinerary.generate'`,
+          [chave],
+        );
+        if (linhas[0]) return linhas[0].response_body;
+      }
+      throw erro;
+    }
   }
 
   async otimizar(userId: string, viagemId: string): Promise<RoteiroLido | FalhaRoteiro> {
@@ -319,6 +345,14 @@ interface ParadaLinha {
   start_time: string | null;
   duration_minutes: number | null;
   completed_at: Date | string | null;
+}
+
+function codigoDe(erro: unknown): string | undefined {
+  if (typeof erro !== 'object' || erro === null) return undefined;
+  const direto = 'code' in erro ? (erro as { code?: unknown }).code : undefined;
+  if (typeof direto === 'string') return direto;
+  const driver = 'driverError' in erro ? (erro as { driverError?: { code?: unknown } }).driverError : undefined;
+  return typeof driver?.code === 'string' ? driver.code : undefined;
 }
 
 interface DeslocamentoLinha {

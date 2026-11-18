@@ -40,8 +40,8 @@ export class RoteiroUseCase {
     return this.roteiros.marcarFeito(userId, viagemId, paradaId, feito);
   }
 
-  gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao): Promise<GeracaoLida | FalhaRoteiro> {
-    return this.roteiros.gerar(userId, viagemId, pedido);
+  gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao, chave?: string | null): Promise<GeracaoLida | FalhaRoteiro> {
+    return this.roteiros.gerar(userId, viagemId, pedido, chave);
   }
 
   otimizar(userId: string, viagemId: string): Promise<RoteiroLido | FalhaRoteiro> {

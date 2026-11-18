@@ -72,6 +72,6 @@ export interface RoteiroRepositorio {
   criarParada(userId: string, viagemId: string, diaId: string, parada: ParadaNova): Promise<RoteiroLido | FalhaRoteiro>;
   criarDeslocamento(userId: string, viagemId: string, diaId: string, deslocamento: DeslocamentoNovo): Promise<RoteiroLido | FalhaRoteiro>;
   marcarFeito(userId: string, viagemId: string, paradaId: string, feito: boolean): Promise<RoteiroLido | FalhaRoteiro>;
-  gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao): Promise<GeracaoLida | FalhaRoteiro>;
+  gerar(userId: string, viagemId: string, pedido: PedidoDeGeracao, chave?: string | null): Promise<GeracaoLida | FalhaRoteiro>;
   otimizar(userId: string, viagemId: string): Promise<RoteiroLido | FalhaRoteiro>;
 }

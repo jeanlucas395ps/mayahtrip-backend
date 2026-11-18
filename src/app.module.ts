@@ -28,6 +28,7 @@ import { IdentidadeModule } from './modules/identidade/identidade.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { NotificacaoModule } from './modules/notificacao/notificacao.module';
 import { OrganizacaoModule } from './modules/organizacao/organizacao.module';
+import { PlataformaModule } from './modules/plataforma/plataforma.module';
 import { RoteiroModule } from './modules/roteiro/roteiro.module';
 import { ViagemModule } from './modules/viagem/viagem.module';
 
@@ -78,6 +79,7 @@ import { ViagemModule } from './modules/viagem/viagem.module';
     ComunidadeModule,
     MayaModule,
     AssinaturaModule,
+    PlataformaModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

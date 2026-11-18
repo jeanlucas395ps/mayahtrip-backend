@@ -20,4 +20,6 @@ export interface SessaoRepositorio {
   revogarFamilia(familiaId: string): Promise<SessaoGravada[]>;
   /** Revoga toda sessão ainda aberta da conta e devolve as famílias atingidas. */
   revogarDoUsuario(contaId: string): Promise<string[]>;
+  /** Dias gravados em platform.system_settings. Null usa o padrão do ambiente. */
+  diasDeSessao(manterConectado: boolean): Promise<number | null>;
 }

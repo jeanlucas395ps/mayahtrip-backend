@@ -32,9 +32,12 @@ export class SessaoDeAcesso {
     const refreshToken = randomBytes(32).toString('base64url');
     const accessJti = randomUUID();
     const agora = this.relogio.agora();
-    const ttlRefresh = manterConectado
-      ? this.config.refreshTtlComManterConectadoSegundos
-      : this.config.refreshTtlSemManterConectadoSegundos;
+    const dias = await this.sessoes.diasDeSessao(manterConectado);
+    const ttlRefresh = dias !== null
+      ? dias * 24 * 60 * 60
+      : manterConectado
+        ? this.config.refreshTtlComManterConectadoSegundos
+        : this.config.refreshTtlSemManterConectadoSegundos;
 
     await this.revogacao.lembrarJti(familiaId, accessJti, this.config.jwtAccessTtlSeconds).catch(() => undefined);
     await this.sessoes.salvar({

@@ -71,6 +71,22 @@ export class SessaoTypeOrmRepositorio implements SessaoRepositorio {
     );
     return [...new Set(linhas.map((linha) => linha.family_id))];
   }
+
+  async diasDeSessao(manterConectado: boolean): Promise<number | null> {
+    const chave = manterConectado ? 'refresh_keep_signed_in_days' : 'refresh_session_days';
+    const linhas = await this.dados.query<{ setting_value: unknown }[]>(
+      `SELECT setting_value FROM platform.system_settings WHERE setting_key = $1`,
+      [chave],
+    );
+    const numero = inteiroDeSessao(linhas[0]?.setting_value);
+    return numero !== null && numero >= 1 && numero <= 365 ? numero : null;
+  }
+}
+
+function inteiroDeSessao(valor: unknown): number | null {
+  if (typeof valor === 'number' && Number.isInteger(valor)) return valor;
+  if (typeof valor === 'string' && /^-?\d+$/.test(valor)) return Number(valor);
+  return null;
 }
 
 function paraDominio(linha: LinhaSessao): SessaoGravada {

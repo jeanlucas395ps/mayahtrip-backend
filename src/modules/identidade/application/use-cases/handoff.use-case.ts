@@ -17,11 +17,13 @@ export class EmitirHandoffUseCase {
   async executar(contaId: string): Promise<{ codigo: string }> {
     const codigo = randomBytes(32).toString('base64url');
     const agora = this.relogio.agora();
+    const configurado = await this.repositorio.ttlSegundos();
+    const ttl = configurado ?? this.config.handoffTtlSegundos;
     await this.repositorio.salvar({
       id: randomUUID(),
       contaId,
       hashCodigo: hashOpaco(codigo),
-      expiraEm: new Date(agora.getTime() + this.config.handoffTtlSegundos * 1000),
+      expiraEm: new Date(agora.getTime() + ttl * 1000),
       usadoEm: null,
     });
     return { codigo };
