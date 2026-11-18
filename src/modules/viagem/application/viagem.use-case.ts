@@ -102,6 +102,18 @@ export class ViagemUseCase {
     return this.viagens.sair(userId, viagemId);
   }
 
+  async publicar(userId: string, viagemId: string, visibility: 'private' | 'public'): Promise<ViagemLida | FalhaViagem> {
+    const resultado = await this.viagens.publicar(userId, viagemId, visibility);
+    if (resultado !== 'ok') return resultado;
+    return (await this.viagens.ficha(userId, viagemId)) ?? 'ausente';
+  }
+
+  async clonar(userId: string, viagemId: string): Promise<ViagemLida | FalhaViagem> {
+    const id = await this.viagens.clonar(userId, viagemId);
+    if (id === 'ausente' || id === 'privada') return id;
+    return (await this.viagens.ficha(userId, id)) ?? 'ausente';
+  }
+
   async passarPosse(userId: string, viagemId: string, participanteId: string): Promise<ViagemLida | FalhaViagem> {
     const resultado = await this.viagens.passarPosse(userId, viagemId, participanteId);
     if (resultado !== 'ok') return resultado;

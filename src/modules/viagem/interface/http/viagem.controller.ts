@@ -23,7 +23,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard, RequestComConta } from '../../../identidade/interface/http/guards/access-token.guard';
 import { ViagemUseCase } from '../../application/viagem.use-case';
 import { Carteira, ConviteAberto, FalhaViagem, ViagemLida } from '../../domain/ports/viagem.port';
-import { ConviteDto, CriarViagemDto, PapelDto, PosseDto, RenomearParticipanteDto, TokenDeConviteDto } from './dto/viagem.dto';
+import { ConviteDto, CriarViagemDto, PapelDto, PosseDto, RenomearParticipanteDto, TokenDeConviteDto, VisibilidadeDto } from './dto/viagem.dto';
 
 const LIMITE_MULTER = 10 * 1024 * 1024;
 
@@ -93,6 +93,17 @@ export class ViagemController {
     const resultado = await this.viagens.sair(request.contaId, id);
     if (resultado !== 'ok') throw httpDe(resultado);
     return { status: 'left' };
+  }
+
+  @Patch(':id/visibility')
+  async publicar(@Req() request: RequestComConta, @Param('id') id: string, @Body(corpo(VisibilidadeDto)) dto: VisibilidadeDto): Promise<ViagemLida> {
+    return responder(this.viagens.publicar(request.contaId, id, dto.visibility));
+  }
+
+  @Post(':id/clone')
+  @HttpCode(HttpStatus.CREATED)
+  async clonar(@Req() request: RequestComConta, @Param('id') id: string): Promise<ViagemLida> {
+    return responder(this.viagens.clonar(request.contaId, id));
   }
 
   @Post(':id/ownership')
@@ -178,6 +189,8 @@ function httpDe(falha: FalhaViagem): HttpException {
   if (falha === 'remover') return new HttpException({ message: 'Você não pode remover esta pessoa.' }, HttpStatus.FORBIDDEN);
   if (falha === 'sumido') return new HttpException({ message: 'Participante não encontrado.' }, HttpStatus.NOT_FOUND);
   if (falha === 'entrada') return new HttpException({ message: 'Escolha alguém que já entrou na viagem.' }, HttpStatus.CONFLICT);
+  if (falha === 'privada') return new HttpException({ message: 'Esta viagem é privada.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'publicar') return new HttpException({ message: 'Só o dono publica a viagem.' }, HttpStatus.FORBIDDEN);
   return new HttpException({ message: 'A configuração da viagem não está disponível.' }, HttpStatus.INTERNAL_SERVER_ERROR);
 }
 

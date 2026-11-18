@@ -476,6 +476,83 @@ describe('Viagem (e2e, Postgres real)', () => {
     expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set(auth)).status).toBe(404);
     expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/leave`).set('Authorization', `Bearer ${supremo.access}`)).body.message).toBe('O dono não sai da viagem. Passe a posse antes.');
   });
+
+  it('clona a viagem pública com o roteiro e sem gasto nem documento', async () => {
+    const dono = await entrar(app, enviarCodigoDeVerificacao);
+    const outro = await entrar(app, enviarCodigoDeVerificacao);
+    const auth = { Authorization: `Bearer ${dono.access}` };
+    const marca = randomUUID().slice(0, 8);
+    const paisId = randomUUID();
+    const cidadeId = randomUUID();
+    await dados.query(`INSERT INTO geography.countries (id, name) VALUES ($1, $2)`, [paisId, `Pais ${marca}`]);
+    await dados.query(`INSERT INTO geography.cities (id, country_id, name) VALUES ($1, $2, $3)`, [cidadeId, paisId, `Cidade ${marca}`]);
+    const hoje = String((await dados.query<{ hoje: string }[]>(`SELECT CURRENT_DATE::text AS hoje`))[0].hoje).slice(0, 10);
+    const criada = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({ title: `Publica ${marca}`, startDate: somar(hoje, 6), endDate: somar(hoje, 8), startMode: 'from_scratch', budgetAmount: 80, budgetCurrency: 'BRL', destinations: [{ cityId: cidadeId }] });
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/clone`).set('Authorization', `Bearer ${outro.access}`)).body.message).toBe('Esta viagem é privada.');
+    await dados.query(
+      `INSERT INTO travel.trip_participants (trip_id, user_id, display_name, party_kind, role, joined_at)
+       VALUES ($1, $2, 'Outro', 'adult'::travel.party_kind, 'experienced_traveler'::travel.participant_role, now())`,
+      [criada.body.id, outro.userId],
+    );
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/visibility`).set('Authorization', `Bearer ${outro.access}`).send({ visibility: 'public' })).body.message).toBe('Só o dono publica a viagem.');
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/visibility`).set(auth).send({ visibility: 'public' })).body.visibility).toBe('public');
+    const roteiro = await dados.query<{ id: string }[]>(
+      `INSERT INTO itinerary.trip_itineraries (trip_id, title, is_active, created_by_user_id) VALUES ($1, 'Roteiro', true, $2) RETURNING id`,
+      [criada.body.id, dono.userId],
+    );
+    const destino = await dados.query<{ id: string }[]>(`SELECT id FROM travel.trip_destinations WHERE trip_id = $1`, [criada.body.id]);
+    const dia = await dados.query<{ id: string }[]>(
+      `INSERT INTO itinerary.itinerary_days (itinerary_id, trip_destination_id, day_number, title) VALUES ($1, $2, 1, 'Dia 1') RETURNING id`,
+      [roteiro[0].id, destino[0].id],
+    );
+    const parada = await dados.query<{ id: string }[]>(
+      `INSERT INTO itinerary.itinerary_stops (itinerary_day_id, title, sort_order, start_time, duration_minutes) VALUES ($1, 'Miradouro', 0, '09:00', 60) RETURNING id`,
+      [dia[0].id],
+    );
+    await dados.query(
+      `INSERT INTO itinerary.itinerary_stops (itinerary_day_id, title, sort_order) VALUES ($1, 'Almoço', 1)`,
+      [dia[0].id],
+    );
+    await dados.query(
+      `INSERT INTO itinerary.itinerary_transfers (itinerary_day_id, from_stop_id, to_stop_id, transport_type, duration_seconds) VALUES ($1, $2, (SELECT id FROM itinerary.itinerary_stops WHERE itinerary_day_id = $1 AND sort_order = 1), 'walk', 600)`,
+      [dia[0].id, parada[0].id],
+    );
+    const categoria = await dados.query<{ id: string }[]>(`SELECT id FROM finance.expense_categories WHERE slug = 'alimentacao'`);
+    const participante = await dados.query<{ id: string }[]>(`SELECT id FROM travel.trip_participants WHERE trip_id = $1 AND role = 'owner'`, [criada.body.id]);
+    await dados.query(
+      `INSERT INTO finance.expenses (trip_id, created_by_user_id, paid_by_participant_id, category_id, title, amount_original, currency_original, fx_rate_date, context)
+       VALUES ($1, $2, $3, $4, 'Jantar', 40, 'BRL', $5, 'on_trip')`,
+      [criada.body.id, dono.userId, participante[0].id, categoria[0].id, hoje],
+    );
+    await dados.query(
+      `INSERT INTO organization.trip_documents (trip_id, uploaded_by_user_id, name, storage_key) VALUES ($1, $2, 'Passagem', $3)`,
+      [criada.body.id, dono.userId, `viagens/${criada.body.id}/doc`],
+    );
+    const clone = await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/clone`).set('Authorization', `Bearer ${outro.access}`);
+    expect(clone.status).toBe(201);
+    expect(clone.body.visibility).toBe('private');
+    expect(clone.body.title).toBe(`Publica ${marca}`);
+    const copia = await dados.query<{ original_trip_id: string; stop_title: string; transport_type: string; gastos: string; documentos: string }[]>(
+      `SELECT c.original_trip_id,
+              (SELECT s.title FROM itinerary.itinerary_stops s
+                JOIN itinerary.itinerary_days d ON d.id = s.itinerary_day_id
+                JOIN itinerary.trip_itineraries i ON i.id = d.itinerary_id
+                WHERE i.trip_id = c.cloned_trip_id AND s.sort_order = 0) AS stop_title,
+              (SELECT t.transport_type FROM itinerary.itinerary_transfers t
+                JOIN itinerary.itinerary_days d ON d.id = t.itinerary_day_id
+                JOIN itinerary.trip_itineraries i ON i.id = d.itinerary_id
+                WHERE i.trip_id = c.cloned_trip_id) AS transport_type,
+              (SELECT count(*)::text FROM finance.expenses e WHERE e.trip_id = c.cloned_trip_id) AS gastos,
+              (SELECT count(*)::text FROM organization.trip_documents doc WHERE doc.trip_id = c.cloned_trip_id) AS documentos
+       FROM travel.trip_clones c WHERE c.cloned_trip_id = $1`,
+      [clone.body.id],
+    );
+    expect(copia[0]).toMatchObject({ original_trip_id: criada.body.id, stop_title: 'Miradouro', transport_type: 'walk', gastos: '0', documentos: '0' });
+    expect((await dados.query<{ id: string }[]>(`SELECT id FROM finance.expenses WHERE trip_id = $1`, [criada.body.id])).length).toBe(1);
+  });
 });
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>, emailInformado?: string): Promise<{ access: string; userId: string; email: string }> {

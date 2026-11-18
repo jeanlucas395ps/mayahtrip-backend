@@ -29,7 +29,9 @@ export type FalhaViagem =
   | 'remover'
   | 'sumido'
   | 'entrada'
-  | 'crianca';
+  | 'crianca'
+  | 'privada'
+  | 'publicar';
 export type Papel = 'owner' | 'supreme_traveler' | 'experienced_traveler' | 'junior_assistant';
 export type PapelDoConvite = Exclude<Papel, 'owner'>;
 export type IdiomaDoConvite = 'pt-BR' | 'pt-PT' | 'en' | 'es';
@@ -144,6 +146,8 @@ export interface ViagemRepositorio {
   remover(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'remover' | 'saida' | 'sumido'>;
   sair(userId: string, viagemId: string): Promise<'ok' | 'ausente' | 'saida'>;
   passarPosse(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'posse' | 'entrada' | 'sumido'>;
+  publicar(userId: string, viagemId: string, visibility: 'private' | 'public'): Promise<'ok' | 'ausente' | 'publicar'>;
+  clonar(userId: string, viagemId: string): Promise<string | 'ausente' | 'privada'>;
   carteira(donoId: string, filtro: FiltroDaCarteira): Promise<Carteira>;
   ficha(donoId: string, viagemId: string): Promise<ViagemLida | null>;
   guardarCapa(donoId: string, viagemId: string, chave: string): Promise<string | null | 'ausente' | 'proibido'>;

@@ -255,6 +255,53 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
     });
   }
 
+  async publicar(userId: string, viagemId: string, visibility: 'private' | 'public'): Promise<'ok' | 'ausente' | 'publicar'> {
+    const papelDeQuem = await papelDe(this.dados, viagemId, userId, false);
+    if (papelDeQuem === 'ausente') return 'ausente';
+    if (papelDeQuem !== 'owner') return 'publicar';
+    await this.dados.query(`UPDATE travel.trips SET visibility = $2::travel.trip_visibility, updated_at = now() WHERE id = $1`, [viagemId, visibility]);
+    return 'ok';
+  }
+
+  async clonar(userId: string, viagemId: string): Promise<string | 'ausente' | 'privada'> {
+    return this.dados.transaction(async (tx) => {
+      const origens = await tx.query<{ id: string; visibility: string }[]>(
+        `SELECT id, visibility::text FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
+        [viagemId],
+      );
+      if (origens.length === 0) return 'ausente';
+      if (origens[0].visibility !== 'public') return 'privada';
+      const criadas = await tx.query<{ id: string }[]>(
+        `INSERT INTO travel.trips (
+           owner_user_id, title, description, start_date, end_date, duration_days, visibility, start_mode,
+           adult_count, child_count, budget_amount, budget_currency
+         )
+         SELECT $2, title, description, start_date, end_date, duration_days, 'private', start_mode,
+                adult_count, child_count, budget_amount, budget_currency
+         FROM travel.trips WHERE id = $1
+         RETURNING id`,
+        [viagemId, userId],
+      );
+      const novoId = criadas[0].id;
+      const perfis = await tx.query<{ display_name: string }[]>(`SELECT display_name FROM identity.user_profiles WHERE user_id = $1`, [userId]);
+      const origem = await tx.query<{ adult_count: number; child_count: number }[]>(`SELECT adult_count, child_count FROM travel.trips WHERE id = $1`, [novoId]);
+      await gravarParticipantes(tx, novoId, userId, perfis[0]?.display_name ?? 'Viajante 1', origem[0].adult_count, origem[0].child_count);
+      await tx.query(
+        `INSERT INTO travel.trip_destinations (trip_id, city_id, custom_name, arrival_date, departure_date, sort_order)
+         SELECT $2, city_id, custom_name, arrival_date, departure_date, sort_order
+         FROM travel.trip_destinations WHERE trip_id = $1
+         ORDER BY sort_order, id`,
+        [viagemId, novoId],
+      );
+      await copiarRoteiro(tx, viagemId, novoId, userId);
+      await tx.query(
+        `INSERT INTO travel.trip_clones (original_trip_id, cloned_trip_id, cloned_by_user_id) VALUES ($1, $2, $3)`,
+        [viagemId, novoId, userId],
+      );
+      return novoId;
+    });
+  }
+
   async passarPosse(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'posse' | 'entrada' | 'sumido'> {
     return this.dados.transaction(async (tx) => {
       const papelDeQuem = await papelDe(tx, viagemId, userId, true);
@@ -525,6 +572,63 @@ async function gravarParticipantes(
       [viagemId, proximo()],
     );
   }
+}
+
+async function copiarRoteiro(tx: { query: DataSource['query'] }, origemId: string, novoId: string, userId: string): Promise<void> {
+  const roteiros = await tx.query<{ id: string; title: string | null; description: string | null }[]>(
+    `SELECT id, title, description FROM itinerary.trip_itineraries
+     WHERE trip_id = $1 AND is_active ORDER BY version DESC LIMIT 1`,
+    [origemId],
+  );
+  if (roteiros.length === 0) return;
+  const novos = await tx.query<{ id: string }[]>(
+    `INSERT INTO itinerary.trip_itineraries (trip_id, version, title, description, is_active, created_by_user_id)
+     VALUES ($1, 1, $2, $3, true, $4) RETURNING id`,
+    [novoId, roteiros[0].title, roteiros[0].description, userId],
+  );
+  const roteiroNovo = novos[0].id;
+  await tx.query(
+    `INSERT INTO itinerary.itinerary_days (itinerary_id, trip_destination_id, day_number, date, title, notes, sort_order)
+     SELECT $2, destino.id, dia.day_number, dia.date, dia.title, dia.notes, dia.sort_order
+     FROM itinerary.itinerary_days dia
+     LEFT JOIN travel.trip_destinations origem_destino ON origem_destino.id = dia.trip_destination_id
+     LEFT JOIN travel.trip_destinations destino
+       ON destino.trip_id = $3 AND destino.sort_order = origem_destino.sort_order
+      AND destino.city_id IS NOT DISTINCT FROM origem_destino.city_id
+      AND destino.custom_name IS NOT DISTINCT FROM origem_destino.custom_name
+     WHERE dia.itinerary_id = $1`,
+    [roteiros[0].id, roteiroNovo, novoId],
+  );
+  await tx.query(
+    `INSERT INTO itinerary.itinerary_stops (
+       itinerary_day_id, place_id, title, description, start_time, end_time, duration_minutes,
+       estimated_cost, estimated_currency, sort_order, notes
+     )
+     SELECT dia_novo.id, parada.place_id, parada.title, parada.description, parada.start_time, parada.end_time,
+            parada.duration_minutes, parada.estimated_cost, parada.estimated_currency, parada.sort_order, parada.notes
+     FROM itinerary.itinerary_stops parada
+     JOIN itinerary.itinerary_days dia_velho ON dia_velho.id = parada.itinerary_day_id
+     JOIN itinerary.itinerary_days dia_novo ON dia_novo.itinerary_id = $2 AND dia_novo.day_number = dia_velho.day_number
+     WHERE dia_velho.itinerary_id = $1`,
+    [roteiros[0].id, roteiroNovo],
+  );
+  await tx.query(
+    `INSERT INTO itinerary.itinerary_transfers (
+       itinerary_day_id, from_stop_id, to_stop_id, transport_type, duration_seconds, distance_meters, geometry, provider_reference, notes
+     )
+     SELECT dia_novo.id, de_nova.id, para_nova.id, deslocamento.transport_type, deslocamento.duration_seconds,
+            deslocamento.distance_meters, deslocamento.geometry, deslocamento.provider_reference, deslocamento.notes
+     FROM itinerary.itinerary_transfers deslocamento
+     JOIN itinerary.itinerary_days dia_velho ON dia_velho.id = deslocamento.itinerary_day_id
+     JOIN itinerary.itinerary_days dia_novo ON dia_novo.itinerary_id = $2 AND dia_novo.day_number = dia_velho.day_number
+     LEFT JOIN itinerary.itinerary_stops de_velha ON de_velha.id = deslocamento.from_stop_id
+     LEFT JOIN itinerary.itinerary_stops de_nova ON de_nova.itinerary_day_id = dia_novo.id AND de_nova.sort_order = de_velha.sort_order
+     LEFT JOIN itinerary.itinerary_stops para_velha ON para_velha.id = deslocamento.to_stop_id
+     LEFT JOIN itinerary.itinerary_stops para_nova ON para_nova.itinerary_day_id = dia_novo.id AND para_nova.sort_order = para_velha.sort_order
+     WHERE dia_velho.itinerary_id = $1`,
+    [roteiros[0].id, roteiroNovo],
+  );
+  await tx.query(`UPDATE travel.trips SET source_itinerary_id = $2 WHERE id = $1`, [novoId, roteiroNovo]);
 }
 
 async function participanteAtivo(
