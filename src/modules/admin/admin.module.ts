@@ -26,6 +26,10 @@ import { ViagensAdminPgRepositorio } from './infrastructure/persistence/viagens-
 import { MalaAdminUseCase } from './application/mala-admin.use-case';
 import { MALA_ADMIN } from './domain/ports/mala-admin.port';
 import { MalaAdminPgRepositorio } from './infrastructure/persistence/mala-admin-pg.repositorio';
+import { ModeracaoUseCase } from './application/moderacao.use-case';
+import { MODERACAO } from './domain/ports/moderacao.port';
+import { ModeracaoPgRepositorio } from './infrastructure/persistence/moderacao-pg.repositorio';
+import { ModeracaoController } from './interface/http/controllers/moderacao.controller';
 import { MalaAdminController } from './interface/http/controllers/mala-admin.controller';
 import { ViagensAdminController } from './interface/http/controllers/viagens-admin.controller';
 import { CatalogoAdminController } from './interface/http/controllers/catalogo-admin.controller';
@@ -44,7 +48,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
       }),
     }),
   ],
-  controllers: [AdminController, CatalogoAdminController, ViagensAdminController, MalaAdminController, AsaasWebhookController],
+  controllers: [AdminController, CatalogoAdminController, ViagensAdminController, MalaAdminController, ModeracaoController, AsaasWebhookController],
   providers: [
     PlanosUseCase,
     SessaoAdminUseCase,
@@ -53,6 +57,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     CatalogoAdminUseCase,
     ViagensAdminUseCase,
     MalaAdminUseCase,
+    ModeracaoUseCase,
     AdminGuard,
     { provide: PLANOS, useClass: PlanosPgRepositorio },
     { provide: SESSAO_ADMIN, useClass: SessaoAdminPgRepositorio },
@@ -61,6 +66,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     { provide: CATALOGO_ADMIN, useClass: CatalogoAdminPgRepositorio },
     { provide: VIAGENS_ADMIN, useClass: ViagensAdminPgRepositorio },
     { provide: MALA_ADMIN, useClass: MalaAdminPgRepositorio },
+    { provide: MODERACAO, useClass: ModeracaoPgRepositorio },
   ],
 })
 export class AdminModule implements OnModuleInit {

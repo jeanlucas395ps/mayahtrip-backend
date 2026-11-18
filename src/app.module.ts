@@ -20,6 +20,7 @@ import { MetricsInterceptor } from './common/logging/metrics.interceptor';
 import { MetricsModule } from './common/logging/metrics.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CatalogoModule } from './modules/catalogo/catalogo.module';
+import { ComunidadeModule } from './modules/comunidade/comunidade.module';
 import { GeografiaModule } from './modules/geografia/geografia.module';
 import { IdentidadeModule } from './modules/identidade/identidade.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
@@ -70,6 +71,7 @@ import { ViagemModule } from './modules/viagem/viagem.module';
     RoteiroModule,
     FinanceiroModule,
     OrganizacaoModule,
+    ComunidadeModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
