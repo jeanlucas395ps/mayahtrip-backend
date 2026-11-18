@@ -9,6 +9,19 @@ export interface CategoriaLida {
   parentId: string | null;
 }
 
+export interface ResumoLido {
+  averageRating: number | null;
+  totalReviews: number;
+}
+
+export interface DicaLida {
+  id: string;
+  userId: string;
+  username: string | null;
+  displayName: string | null;
+  content: string;
+}
+
 export interface LugarBuscado {
   id: string;
   slug: string;
@@ -16,6 +29,8 @@ export interface LugarBuscado {
   cityId: string | null;
   cityName: string | null;
   categories: CategoriaLida[];
+  averageRating: number | null;
+  totalReviews: number;
 }
 
 export interface EnderecoLido {
@@ -77,6 +92,7 @@ export interface LugarLido extends LugarBuscado {
   visitInformation: VisitaLida[];
   media: MidiaLida[];
   externalReferences: ReferenciaLida[];
+  communityTips: DicaLida[];
 }
 
 export interface CatalogoRepositorio {

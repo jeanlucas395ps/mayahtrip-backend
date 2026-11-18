@@ -8,13 +8,16 @@ import {
   IdiomaCatalogo,
   LugarBuscado,
   LugarLido,
+  DicaLida,
   MidiaLida,
   PrecoLido,
   ReferenciaLida,
+  ResumoLido,
   VisitaLida,
 } from '../../domain/ports/catalogo.port';
 
 const LIMITE_LUGARES = 20;
+const LIMITE_DICAS = 20;
 
 @Injectable()
 export class CatalogoPgRepositorio implements CatalogoRepositorio {
@@ -48,25 +51,28 @@ export class CatalogoPgRepositorio implements CatalogoRepositorio {
        LIMIT ${LIMITE_LUGARES}`,
       [idioma, comoBusca(texto)],
     );
-    const categorias = await this.categorias(linhas.map((linha) => linha.id), idioma);
-    return linhas.map((linha) => paraBusca(linha, categorias.get(linha.id) ?? []));
+    const ids = linhas.map((linha) => linha.id);
+    const [categorias, resumos] = await Promise.all([this.categorias(ids, idioma), this.resumos(ids)]);
+    return linhas.map((linha) => paraBusca(linha, categorias.get(linha.id) ?? [], resumos.get(linha.id)));
   }
 
   async lugar(id: string, idioma: IdiomaCatalogo): Promise<LugarLido | null> {
     const linhas = await this.dados.query<LinhaLugar[]>(`${baseLugar} WHERE p.id = $2 AND p.status = 'active'`, [idioma, id]);
     const linha = linhas[0];
     if (!linha) return null;
-    const [categorias, addresses, openingHours, prices, visitInformation, media, externalReferences] = await Promise.all([
+    const [categorias, resumos, addresses, openingHours, prices, visitInformation, media, externalReferences, communityTips] = await Promise.all([
       this.categorias([linha.id], idioma),
+      this.resumos([linha.id]),
       this.enderecos(linha.id),
       this.horarios(linha.id),
       this.precos(linha.id),
       this.visitas(linha.id),
       this.midias(linha.id),
       this.referencias(linha.id),
+      this.dicas(linha.id),
     ]);
     return {
-      ...paraBusca(linha, categorias.get(linha.id) ?? []),
+      ...paraBusca(linha, categorias.get(linha.id) ?? [], resumos.get(linha.id)),
       description: linha.description,
       latitude: numero(linha.latitude),
       longitude: numero(linha.longitude),
@@ -78,6 +84,7 @@ export class CatalogoPgRepositorio implements CatalogoRepositorio {
       visitInformation,
       media,
       externalReferences,
+      communityTips,
     };
   }
 
@@ -204,6 +211,57 @@ export class CatalogoPgRepositorio implements CatalogoRepositorio {
     }
     return mapa;
   }
+
+  private async resumos(ids: string[]): Promise<Map<string, ResumoLido>> {
+    const mapa = new Map<string, ResumoLido>();
+    if (ids.length === 0) return mapa;
+    const linhas = linhasDe<LinhaResumo>(
+      await this.dados.query(
+        `INSERT INTO catalog.place_ratings_summary (place_id, average_rating, total_reviews, updated_at)
+         SELECT p.id,
+                ROUND(AVG(r.rating)::numeric, 2),
+                COUNT(r.id)::int,
+                now()
+         FROM catalog.places p
+         LEFT JOIN community.place_reviews r
+           ON r.place_id = p.id AND r.status = 'published'
+         WHERE p.id = ANY($1::uuid[])
+         GROUP BY p.id
+         ON CONFLICT (place_id) DO UPDATE
+         SET average_rating = EXCLUDED.average_rating,
+             total_reviews = EXCLUDED.total_reviews,
+             updated_at = now()
+         RETURNING place_id, average_rating, total_reviews`,
+        [ids],
+      ),
+    );
+    for (const linha of linhas) {
+      mapa.set(linha.place_id, {
+        averageRating: numero(linha.average_rating),
+        totalReviews: Number(linha.total_reviews),
+      });
+    }
+    return mapa;
+  }
+
+  private async dicas(lugarId: string): Promise<DicaLida[]> {
+    const linhas = await this.dados.query<LinhaDica[]>(
+      `SELECT t.id, t.user_id, t.content, p.username, p.display_name
+       FROM catalog.place_community_tips t
+       LEFT JOIN identity.user_profiles p ON p.user_id = t.user_id
+       WHERE t.place_id = $1
+       ORDER BY t.created_at DESC, t.id
+       LIMIT ${LIMITE_DICAS}`,
+      [lugarId],
+    );
+    return linhas.map((linha) => ({
+      id: linha.id,
+      userId: linha.user_id,
+      username: linha.username,
+      displayName: linha.display_name,
+      content: linha.content,
+    }));
+  }
 }
 
 const baseLugar = `
@@ -288,7 +346,21 @@ interface LinhaReferencia {
   last_synced_at: Date | string | null;
 }
 
-function paraBusca(linha: LinhaLugar, categories: CategoriaLida[]): LugarBuscado {
+interface LinhaResumo {
+  place_id: string;
+  average_rating: string | null;
+  total_reviews: number | string;
+}
+
+interface LinhaDica {
+  id: string;
+  user_id: string;
+  content: string;
+  username: string | null;
+  display_name: string | null;
+}
+
+function paraBusca(linha: LinhaLugar, categories: CategoriaLida[], resumo: ResumoLido | undefined): LugarBuscado {
   return {
     id: linha.id,
     slug: linha.slug,
@@ -296,7 +368,14 @@ function paraBusca(linha: LinhaLugar, categories: CategoriaLida[]): LugarBuscado
     cityId: linha.city_id,
     cityName: linha.city_name,
     categories,
+    averageRating: resumo?.averageRating ?? null,
+    totalReviews: resumo?.totalReviews ?? 0,
   };
+}
+
+function linhasDe<T>(resultado: unknown): T[] {
+  if (Array.isArray(resultado) && Array.isArray(resultado[0])) return resultado[0] as T[];
+  return resultado as T[];
 }
 
 function numero(valor: string | number | null): number | null {

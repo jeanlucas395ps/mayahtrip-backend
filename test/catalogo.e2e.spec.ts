@@ -79,6 +79,8 @@ describe('Catálogo (e2e, Postgres real)', () => {
             parentId: lugar.paiId,
           },
         ],
+        averageRating: null,
+        totalReviews: 0,
       },
     ]);
 
@@ -209,6 +211,50 @@ describe('Catálogo (e2e, Postgres real)', () => {
     expect(Number(visita[0]?.recommended_duration_minutes)).toBe(90);
     expect(midia[0]?.external_url).toBe(ficha.urlExterna);
     expect(referencia[0]?.provider).toBe('google-places');
+  });
+
+  it('recalcula a nota pelas avaliações publicadas e lê as dicas', async () => {
+    const access = await entrar(app, enviarCodigoDeVerificacao);
+    const auth = { Authorization: `Bearer ${access}` };
+    const lugar = await semear(dados);
+    const contaId = JSON.parse(Buffer.from(access.split('.')[1] ?? '', 'base64url').toString()).sub as string;
+    const antigaId = randomUUID();
+    const novaId = randomUUID();
+    await dados.query(
+      `INSERT INTO community.place_reviews (place_id, user_id, rating, status) VALUES
+       ($1, $2, 4, 'published'), ($1, $2, 5, 'published'), ($1, $2, 1, 'hidden')`,
+      [lugar.lugarId, contaId],
+    );
+    await dados.query(
+      `INSERT INTO catalog.place_community_tips (id, place_id, user_id, content, created_at) VALUES
+       ($1, $2, $3, $4, '2026-11-01T00:00:00.000Z'),
+       ($5, $2, $3, $6, '2026-11-02T00:00:00.000Z')`,
+      [antigaId, lugar.lugarId, contaId, `Dica antiga ${lugar.marca}`, novaId, `Dica nova ${lugar.marca}`],
+    );
+
+    const pagina = await request(app.getHttpServer()).get(`/v1/catalog/places/${lugar.lugarId}`).set(auth);
+    expect(pagina.status).toBe(200);
+    expect(pagina.body.averageRating).toBe(4.5);
+    expect(pagina.body.totalReviews).toBe(2);
+    expect(pagina.body.communityTips).toEqual([
+      expect.objectContaining({ id: novaId, userId: contaId, displayName: 'Pessoa E2E', content: `Dica nova ${lugar.marca}` }),
+      expect.objectContaining({ id: antigaId, content: `Dica antiga ${lugar.marca}` }),
+    ]);
+
+    const busca = await request(app.getHttpServer()).get('/v1/catalog/places').query({ q: `Lugar ${lugar.marca}` }).set(auth);
+    expect(busca.body).toEqual([expect.objectContaining({ id: lugar.lugarId, averageRating: 4.5, totalReviews: 2 })]);
+
+    const resumo = await dados.query<{ average_rating: string; total_reviews: number }[]>(
+      `SELECT average_rating, total_reviews FROM catalog.place_ratings_summary WHERE place_id = $1`,
+      [lugar.lugarId],
+    );
+    const dicas = await dados.query<{ content: string }[]>(
+      `SELECT content FROM catalog.place_community_tips WHERE place_id = $1 ORDER BY created_at`,
+      [lugar.lugarId],
+    );
+    expect(Number(resumo[0]?.average_rating)).toBe(4.5);
+    expect(Number(resumo[0]?.total_reviews)).toBe(2);
+    expect(dicas.map((dica) => dica.content)).toEqual([`Dica antiga ${lugar.marca}`, `Dica nova ${lugar.marca}`]);
   });
 });
 
