@@ -6,11 +6,29 @@ import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { prepararAplicacao } from '../src/common/http/preparar-aplicacao';
+import { ARMAZENAMENTO, ArmazenamentoDeArquivo } from '../src/modules/identidade/domain/ports/armazenamento.port';
 import { REMETENTE_DE_EMAIL } from '../src/modules/identidade/domain/ports/remetente-de-email.port';
+
+class MemoriaArmazenamento implements ArmazenamentoDeArquivo {
+  readonly objetos = new Map<string, { bytes: Buffer; mime: string }>();
+
+  async guardar(chave: string, bytes: Buffer, mime: string): Promise<void> {
+    this.objetos.set(chave, { bytes: Buffer.from(bytes), mime });
+  }
+
+  async ler(chave: string): Promise<{ bytes: Buffer; mime: string } | null> {
+    return this.objetos.get(chave) ?? null;
+  }
+
+  async apagar(chave: string): Promise<void> {
+    this.objetos.delete(chave);
+  }
+}
 
 describe('Catálogo (e2e, Postgres real)', () => {
   let app: INestApplication;
   let dados: DataSource;
+  const armazenamento = new MemoriaArmazenamento();
   const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
@@ -18,6 +36,8 @@ describe('Catálogo (e2e, Postgres real)', () => {
     const modulo = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(REMETENTE_DE_EMAIL)
       .useValue({ enviarCodigoDeVerificacao })
+      .overrideProvider(ARMAZENAMENTO)
+      .useValue(armazenamento)
       .compile();
     app = modulo.createNestApplication();
     prepararAplicacao(app);
@@ -118,6 +138,78 @@ describe('Catálogo (e2e, Postgres real)', () => {
     expect(nomeCategoria[0]?.name).toBe(`Trattoria ${lugar.marca}`);
     expect(vinculo).toHaveLength(1);
   });
+
+  it('lê endereço, horário, preço, visita, mídia guardada e referência', async () => {
+    const access = await entrar(app, enviarCodigoDeVerificacao);
+    const auth = { Authorization: `Bearer ${access}` };
+    const lugar = await semear(dados);
+    const ficha = await semearFicha(dados, lugar, armazenamento);
+
+    const porBairro = await request(app.getHttpServer()).get('/v1/catalog/places').query({ q: `Trastevere ${lugar.marca}` }).set(auth);
+    expect(porBairro.body).toEqual([expect.objectContaining({ id: lugar.lugarId })]);
+    const bairroArquivado = await request(app.getHttpServer()).get('/v1/catalog/places').query({ q: `Sumido ${lugar.marca}` }).set(auth);
+    expect(bairroArquivado.body).toEqual([]);
+
+    const pagina = await request(app.getHttpServer()).get(`/v1/catalog/places/${lugar.lugarId}`).set(auth);
+    expect(pagina.status).toBe(200);
+    expect(pagina.body.addresses).toEqual([
+      {
+        id: ficha.enderecoId,
+        line1: `Rua ${lugar.marca}`,
+        neighborhood: `Trastevere ${lugar.marca}`,
+        postalCode: '00100',
+        cityId: lugar.cidadeId,
+      },
+    ]);
+    expect(pagina.body.openingHours).toEqual([
+      { id: ficha.fechadoId, weekday: 0, openingTime: null, closingTime: null, isClosed: true },
+      { id: ficha.abertoId, weekday: 2, openingTime: '09:00:00', closingTime: '18:30:00', isClosed: false },
+    ]);
+    expect(pagina.body.prices).toEqual([{ id: ficha.precoId, currency: 'BRL', priceLevel: 2, minimumPrice: 10, maximumPrice: 40 }]);
+    expect(pagina.body.visitInformation).toEqual([
+      {
+        id: ficha.visitaId,
+        recommendedDurationMinutes: 90,
+        bestTimeToVisit: `Manhã ${lugar.marca}`,
+        accessibilityInformation: `Rampa ${lugar.marca}`,
+      },
+    ]);
+    expect(pagina.body.media).toEqual([{ id: ficha.midiaId, mediaType: 'photo', attribution: `Autor ${lugar.marca}`, sortOrder: 1 }]);
+    expect(JSON.stringify(pagina.body)).not.toContain(ficha.urlExterna);
+    expect(JSON.stringify(pagina.body)).not.toContain(ficha.chave);
+    expect(pagina.body.externalReferences).toEqual([
+      {
+        id: ficha.referenciaId,
+        provider: 'google-places',
+        externalId: `ext-${lugar.marca}`,
+        externalUrl: `https://maps.example/${lugar.marca}`,
+        providerMetadata: { fonte: lugar.marca },
+        lastSyncedAt: '2026-11-18T12:00:00.000Z',
+      },
+    ]);
+
+    const arquivo = await request(app.getHttpServer()).get(`/v1/catalog/places/${lugar.lugarId}/media/${ficha.midiaId}`).set(auth);
+    expect(arquivo.status).toBe(200);
+    expect(arquivo.headers['content-type']).toContain('image/jpeg');
+    expect(arquivo.body.toString()).toBe(`foto-${lugar.marca}`);
+    expect(await request(app.getHttpServer()).get(`/v1/catalog/places/${lugar.lugarId}/media/${ficha.quarentenaId}`).set(auth)).toMatchObject({ status: 404 });
+
+    const endereco = await dados.query<{ neighborhood: string }[]>(`SELECT neighborhood FROM catalog.place_addresses WHERE id = $1`, [ficha.enderecoId]);
+    const horario = await dados.query<{ weekday: number }[]>(`SELECT weekday FROM catalog.place_opening_hours WHERE id = $1`, [ficha.abertoId]);
+    const preco = await dados.query<{ currency: string }[]>(`SELECT currency FROM catalog.place_price_information WHERE id = $1`, [ficha.precoId]);
+    const visita = await dados.query<{ recommended_duration_minutes: number }[]>(
+      `SELECT recommended_duration_minutes FROM catalog.place_visit_information WHERE id = $1`,
+      [ficha.visitaId],
+    );
+    const midia = await dados.query<{ external_url: string }[]>(`SELECT external_url FROM catalog.place_media WHERE id = $1`, [ficha.quarentenaId]);
+    const referencia = await dados.query<{ provider: string }[]>(`SELECT provider FROM catalog.place_external_references WHERE id = $1`, [ficha.referenciaId]);
+    expect(endereco[0]?.neighborhood).toBe(`Trastevere ${lugar.marca}`);
+    expect(Number(horario[0]?.weekday)).toBe(2);
+    expect(preco[0]?.currency.trim()).toBe('BRL');
+    expect(Number(visita[0]?.recommended_duration_minutes)).toBe(90);
+    expect(midia[0]?.external_url).toBe(ficha.urlExterna);
+    expect(referencia[0]?.provider).toBe('google-places');
+  });
 });
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>): Promise<string> {
@@ -195,4 +287,72 @@ async function semear(dados: DataSource): Promise<{
   }
   await dados.query(`INSERT INTO catalog.place_category_relations (place_id, category_id) VALUES ($1, $2)`, [lugarId, categoriaId]);
   return { marca, cidadeId, paiId, categoriaId, lugarId, arquivadoId };
+}
+
+async function semearFicha(
+  dados: DataSource,
+  lugar: { marca: string; cidadeId: string; lugarId: string; arquivadoId: string },
+  armazenamento: MemoriaArmazenamento,
+): Promise<{
+  enderecoId: string;
+  abertoId: string;
+  fechadoId: string;
+  precoId: string;
+  visitaId: string;
+  midiaId: string;
+  quarentenaId: string;
+  referenciaId: string;
+  chave: string;
+  urlExterna: string;
+}> {
+  const enderecoId = randomUUID();
+  const abertoId = randomUUID();
+  const fechadoId = randomUUID();
+  const precoId = randomUUID();
+  const visitaId = randomUUID();
+  const midiaId = randomUUID();
+  const quarentenaId = randomUUID();
+  const referenciaId = randomUUID();
+  const chave = `catalogo/${lugar.marca}/foto`;
+  const urlExterna = `https://fonte.example/${lugar.marca}/video`;
+  await dados.query(
+    `INSERT INTO catalog.place_addresses (id, place_id, line1, neighborhood, postal_code, city_id) VALUES ($1, $2, $3, $4, '00100', $5)`,
+    [enderecoId, lugar.lugarId, `Rua ${lugar.marca}`, `Trastevere ${lugar.marca}`, lugar.cidadeId],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_addresses (place_id, neighborhood) VALUES ($1, $2)`,
+    [lugar.arquivadoId, `Sumido ${lugar.marca}`],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_opening_hours (id, place_id, weekday, is_closed) VALUES ($1, $2, 0, true)`,
+    [fechadoId, lugar.lugarId],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_opening_hours (id, place_id, weekday, opening_time, closing_time, is_closed) VALUES ($1, $2, 2, '09:00', '18:30', false)`,
+    [abertoId, lugar.lugarId],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_price_information (id, place_id, currency, price_level, minimum_price, maximum_price) VALUES ($1, $2, 'BRL', 2, 10, 40)`,
+    [precoId, lugar.lugarId],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_visit_information (id, place_id, recommended_duration_minutes, best_time_to_visit, accessibility_information)
+     VALUES ($1, $2, 90, $3, $4)`,
+    [visitaId, lugar.lugarId, `Manhã ${lugar.marca}`, `Rampa ${lugar.marca}`],
+  );
+  await armazenamento.guardar(chave, Buffer.from(`foto-${lugar.marca}`), 'image/jpeg');
+  await dados.query(
+    `INSERT INTO catalog.place_media (id, place_id, media_type, storage_key, attribution, sort_order) VALUES ($1, $2, 'photo', $3, $4, 1)`,
+    [midiaId, lugar.lugarId, chave, `Autor ${lugar.marca}`],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_media (id, place_id, media_type, external_url, sort_order) VALUES ($1, $2, 'video', $3, 0)`,
+    [quarentenaId, lugar.lugarId, urlExterna],
+  );
+  await dados.query(
+    `INSERT INTO catalog.place_external_references (id, place_id, provider, external_id, external_url, provider_metadata, last_synced_at)
+     VALUES ($1, $2, 'google-places', $3, $4, $5::jsonb, '2026-11-18T12:00:00.000Z')`,
+    [referenciaId, lugar.lugarId, `ext-${lugar.marca}`, `https://maps.example/${lugar.marca}`, JSON.stringify({ fonte: lugar.marca })],
+  );
+  return { enderecoId, abertoId, fechadoId, precoId, visitaId, midiaId, quarentenaId, referenciaId, chave, urlExterna };
 }
