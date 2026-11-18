@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { podeConvidar, visaoDe } from '../../domain/visao';
+import { podeConvidar, podeRemover, visaoDe } from '../../domain/visao';
 import {
   Carteira,
   ConviteAberto,
@@ -212,6 +212,72 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
       return 'ok' as const;
     });
     return resultado === 'pessoa' ? 'usado' : resultado;
+  }
+
+  async alterarPapel(userId: string, viagemId: string, participanteId: string, papel: PapelDoConvite): Promise<'ok' | 'ausente' | 'papel' | 'crianca' | 'sumido'> {
+    return this.dados.transaction(async (tx) => {
+      const papelDeQuem = await papelDe(tx, viagemId, userId, true);
+      if (papelDeQuem === 'ausente') return 'ausente';
+      if (papelDeQuem !== 'owner') return 'papel';
+      const alvo = await participanteAtivo(tx, viagemId, participanteId);
+      if (!alvo) return 'sumido';
+      if (alvo.party_kind === 'child') return 'crianca';
+      if (alvo.role === 'owner') return 'papel';
+      await tx.query(`UPDATE travel.trip_participants SET role = $2::travel.participant_role WHERE id = $1`, [participanteId, papel]);
+      return 'ok';
+    });
+  }
+
+  async remover(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'remover' | 'saida' | 'sumido'> {
+    return this.dados.transaction(async (tx) => {
+      const papelDeQuem = await papelDe(tx, viagemId, userId, true);
+      if (papelDeQuem === 'ausente') return 'ausente';
+      if (!podeRemover(papelDeQuem)) return 'remover';
+      const alvo = await participanteAtivo(tx, viagemId, participanteId);
+      if (!alvo) return 'sumido';
+      if (alvo.role === 'owner') return 'saida';
+      await tx.query(`UPDATE travel.trip_participants SET removed_at = clock_timestamp() WHERE id = $1`, [participanteId]);
+      return 'ok';
+    });
+  }
+
+  async sair(userId: string, viagemId: string): Promise<'ok' | 'ausente' | 'saida'> {
+    return this.dados.transaction(async (tx) => {
+      const papelDeQuem = await papelDe(tx, viagemId, userId, true);
+      if (papelDeQuem === 'ausente') return 'ausente';
+      if (papelDeQuem === 'owner') return 'saida';
+      await tx.query(
+        `UPDATE travel.trip_participants SET removed_at = clock_timestamp()
+         WHERE trip_id = $1 AND user_id = $2 AND removed_at IS NULL`,
+        [viagemId, userId],
+      );
+      return 'ok';
+    });
+  }
+
+  async passarPosse(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'posse' | 'entrada' | 'sumido'> {
+    return this.dados.transaction(async (tx) => {
+      const papelDeQuem = await papelDe(tx, viagemId, userId, true);
+      if (papelDeQuem === 'ausente') return 'ausente';
+      if (papelDeQuem !== 'owner') return 'posse';
+      const alvo = await participanteAtivo(tx, viagemId, participanteId);
+      if (!alvo) return 'sumido';
+      if (!alvo.user_id || alvo.user_id === userId) return 'entrada';
+      const dono = await tx.query<{ id: string }[]>(
+        `SELECT id FROM travel.trip_participants
+         WHERE trip_id = $1 AND user_id = $2 AND role = 'owner' AND removed_at IS NULL`,
+        [viagemId, userId],
+      );
+      if (dono.length === 0) return 'posse';
+      await tx.query(
+        `INSERT INTO travel.trip_ownership_transfers (trip_id, from_user_id, to_user_id) VALUES ($1, $2, $3)`,
+        [viagemId, userId, alvo.user_id],
+      );
+      await tx.query(`UPDATE travel.trips SET owner_user_id = $2, updated_at = now() WHERE id = $1`, [viagemId, alvo.user_id]);
+      await tx.query(`UPDATE travel.trip_participants SET role = 'supreme_traveler'::travel.participant_role WHERE id = $1`, [dono[0].id]);
+      await tx.query(`UPDATE travel.trip_participants SET role = 'owner'::travel.participant_role WHERE id = $1`, [participanteId]);
+      return 'ok';
+    });
   }
 
   async carteira(donoId: string, filtro: FiltroDaCarteira): Promise<Carteira> {
@@ -459,6 +525,20 @@ async function gravarParticipantes(
       [viagemId, proximo()],
     );
   }
+}
+
+async function participanteAtivo(
+  tx: { query: DataSource['query'] },
+  viagemId: string,
+  participanteId: string,
+): Promise<{ role: Papel | null; party_kind: 'adult' | 'child'; user_id: string | null } | null> {
+  const linhas = await tx.query<{ role: Papel | null; party_kind: 'adult' | 'child'; user_id: string | null }[]>(
+    `SELECT role::text AS role, party_kind::text AS party_kind, user_id
+     FROM travel.trip_participants
+     WHERE id = $1 AND trip_id = $2 AND removed_at IS NULL`,
+    [participanteId, viagemId],
+  );
+  return linhas[0] ?? null;
 }
 
 async function papelDe(

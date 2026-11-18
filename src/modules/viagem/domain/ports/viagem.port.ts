@@ -22,7 +22,14 @@ export type FalhaViagem =
   | 'semConvite'
   | 'convite'
   | 'alheio'
-  | 'usado';
+  | 'usado'
+  | 'papel'
+  | 'posse'
+  | 'saida'
+  | 'remover'
+  | 'sumido'
+  | 'entrada'
+  | 'crianca';
 export type Papel = 'owner' | 'supreme_traveler' | 'experienced_traveler' | 'junior_assistant';
 export type PapelDoConvite = Exclude<Papel, 'owner'>;
 export type IdiomaDoConvite = 'pt-BR' | 'pt-PT' | 'en' | 'es';
@@ -133,6 +140,10 @@ export interface ViagemRepositorio {
   abrirConvite(userId: string, token: string): Promise<ConviteAberto | 'convite' | 'alheio' | 'usado'>;
   aceitarConvite(userId: string, token: string): Promise<{ tripId: string } | 'convite' | 'alheio' | 'usado' | 'pessoa'>;
   recusarConvite(userId: string, token: string): Promise<'ok' | 'convite' | 'alheio' | 'usado'>;
+  alterarPapel(userId: string, viagemId: string, participanteId: string, papel: PapelDoConvite): Promise<'ok' | 'ausente' | 'papel' | 'crianca' | 'sumido'>;
+  remover(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'remover' | 'saida' | 'sumido'>;
+  sair(userId: string, viagemId: string): Promise<'ok' | 'ausente' | 'saida'>;
+  passarPosse(userId: string, viagemId: string, participanteId: string): Promise<'ok' | 'ausente' | 'posse' | 'entrada' | 'sumido'>;
   carteira(donoId: string, filtro: FiltroDaCarteira): Promise<Carteira>;
   ficha(donoId: string, viagemId: string): Promise<ViagemLida | null>;
   guardarCapa(donoId: string, viagemId: string, chave: string): Promise<string | null | 'ausente' | 'proibido'>;

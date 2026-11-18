@@ -3,6 +3,16 @@ import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, 
 
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
+export class PapelDto {
+  @IsIn(['supreme_traveler', 'experienced_traveler', 'junior_assistant'])
+  role!: 'supreme_traveler' | 'experienced_traveler' | 'junior_assistant';
+}
+
+export class PosseDto {
+  @IsUUID()
+  participantId!: string;
+}
+
 export class RenomearParticipanteDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()

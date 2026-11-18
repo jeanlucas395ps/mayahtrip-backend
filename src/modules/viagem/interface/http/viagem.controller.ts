@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Patch,
   HttpCode,
@@ -22,7 +23,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard, RequestComConta } from '../../../identidade/interface/http/guards/access-token.guard';
 import { ViagemUseCase } from '../../application/viagem.use-case';
 import { Carteira, ConviteAberto, FalhaViagem, ViagemLida } from '../../domain/ports/viagem.port';
-import { ConviteDto, CriarViagemDto, RenomearParticipanteDto, TokenDeConviteDto } from './dto/viagem.dto';
+import { ConviteDto, CriarViagemDto, PapelDto, PosseDto, RenomearParticipanteDto, TokenDeConviteDto } from './dto/viagem.dto';
 
 const LIMITE_MULTER = 10 * 1024 * 1024;
 
@@ -70,6 +71,33 @@ export class ViagemController {
       throw new HttpException({ message: 'Envie uma imagem JPG, PNG ou WebP.' }, HttpStatus.BAD_REQUEST);
     }
     return responder(this.viagens.guardarCapa(request.contaId, id, arquivo.buffer, arquivo.mimetype));
+  }
+
+  @Patch(':id/participants/:participantId/role')
+  async alterarPapel(
+    @Req() request: RequestComConta,
+    @Param('id') id: string,
+    @Param('participantId') participantId: string,
+    @Body(corpo(PapelDto)) dto: PapelDto,
+  ): Promise<ViagemLida> {
+    return responder(this.viagens.alterarPapel(request.contaId, id, participantId, dto.role));
+  }
+
+  @Delete(':id/participants/:participantId')
+  async remover(@Req() request: RequestComConta, @Param('id') id: string, @Param('participantId') participantId: string): Promise<ViagemLida> {
+    return responder(this.viagens.remover(request.contaId, id, participantId));
+  }
+
+  @Post(':id/leave')
+  async sair(@Req() request: RequestComConta, @Param('id') id: string): Promise<{ status: 'left' }> {
+    const resultado = await this.viagens.sair(request.contaId, id);
+    if (resultado !== 'ok') throw httpDe(resultado);
+    return { status: 'left' };
+  }
+
+  @Post(':id/ownership')
+  async passarPosse(@Req() request: RequestComConta, @Param('id') id: string, @Body(corpo(PosseDto)) dto: PosseDto): Promise<ViagemLida> {
+    return responder(this.viagens.passarPosse(request.contaId, id, dto.participantId));
   }
 
   @Patch(':id/participants/:participantId')
@@ -143,6 +171,13 @@ function httpDe(falha: FalhaViagem): HttpException {
   if (falha === 'convite') return new HttpException({ message: 'Convite não encontrado.' }, HttpStatus.NOT_FOUND);
   if (falha === 'alheio') return new HttpException({ message: 'Este convite é de outra pessoa.' }, HttpStatus.FORBIDDEN);
   if (falha === 'usado') return new HttpException({ message: 'Este convite já foi usado.' }, HttpStatus.CONFLICT);
+  if (falha === 'papel') return new HttpException({ message: 'Só o dono altera o papel.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'crianca') return new HttpException({ message: 'O papel da criança sem conta não foi nomeado.' }, HttpStatus.CONFLICT);
+  if (falha === 'posse') return new HttpException({ message: 'Só o dono passa a posse.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'saida') return new HttpException({ message: 'O dono não sai da viagem. Passe a posse antes.' }, HttpStatus.CONFLICT);
+  if (falha === 'remover') return new HttpException({ message: 'Você não pode remover esta pessoa.' }, HttpStatus.FORBIDDEN);
+  if (falha === 'sumido') return new HttpException({ message: 'Participante não encontrado.' }, HttpStatus.NOT_FOUND);
+  if (falha === 'entrada') return new HttpException({ message: 'Escolha alguém que já entrou na viagem.' }, HttpStatus.CONFLICT);
   return new HttpException({ message: 'A configuração da viagem não está disponível.' }, HttpStatus.INTERNAL_SERVER_ERROR);
 }
 

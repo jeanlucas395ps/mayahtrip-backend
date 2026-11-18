@@ -86,6 +86,28 @@ export class ViagemUseCase {
     return this.viagens.recusarConvite(userId, token);
   }
 
+  async alterarPapel(userId: string, viagemId: string, participanteId: string, papel: PapelDoConvite): Promise<ViagemLida | FalhaViagem> {
+    const resultado = await this.viagens.alterarPapel(userId, viagemId, participanteId, papel);
+    if (resultado !== 'ok') return resultado;
+    return (await this.viagens.ficha(userId, viagemId)) ?? 'ausente';
+  }
+
+  async remover(userId: string, viagemId: string, participanteId: string): Promise<ViagemLida | FalhaViagem> {
+    const resultado = await this.viagens.remover(userId, viagemId, participanteId);
+    if (resultado !== 'ok') return resultado;
+    return (await this.viagens.ficha(userId, viagemId)) ?? 'ausente';
+  }
+
+  async sair(userId: string, viagemId: string): Promise<'ok' | FalhaViagem> {
+    return this.viagens.sair(userId, viagemId);
+  }
+
+  async passarPosse(userId: string, viagemId: string, participanteId: string): Promise<ViagemLida | FalhaViagem> {
+    const resultado = await this.viagens.passarPosse(userId, viagemId, participanteId);
+    if (resultado !== 'ok') return resultado;
+    return (await this.viagens.ficha(userId, viagemId)) ?? 'ausente';
+  }
+
   carteira(donoId: string, filtro: string | undefined): Promise<Carteira | 'filtro'> {
     if (filtro !== undefined && filtro !== '' && filtro !== 'todas' && filtro !== 'proximas' && filtro !== 'rascunhos') {
       return Promise.resolve('filtro');

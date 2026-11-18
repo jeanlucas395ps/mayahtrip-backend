@@ -422,6 +422,60 @@ describe('Viagem (e2e, Postgres real)', () => {
     expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/invitations`).set('Authorization', `Bearer ${junior.access}`).send({ email: `outro-${marca}@exemplo.com`, role: 'experienced_traveler' })).body.message).toBe('Você não pode convidar para esta viagem.');
     expect((await request(app.getHttpServer()).post('/v1/trips').set(auth).send({ durationDays: 2, startMode: 'from_scratch', destinations: [{ customName: 'Lugar' }], invites: [{ email: 'sem-arroba', role: 'experienced_traveler' }] })).body.message).toBe('Digite um e-mail válido.');
   });
+
+  it('só o dono muda papel e passa a posse; dono e supremo removem', async () => {
+    const dono = await entrar(app, enviarCodigoDeVerificacao);
+    const experiente = await entrar(app, enviarCodigoDeVerificacao);
+    const supremo = await entrar(app, enviarCodigoDeVerificacao);
+    const auth = { Authorization: `Bearer ${dono.access}` };
+    const marca = randomUUID().slice(0, 8);
+    const paisId = randomUUID();
+    const cidadeId = randomUUID();
+    await dados.query(`INSERT INTO geography.countries (id, name) VALUES ($1, $2)`, [paisId, `Pais ${marca}`]);
+    await dados.query(`INSERT INTO geography.cities (id, country_id, name) VALUES ($1, $2, $3)`, [cidadeId, paisId, `Cidade ${marca}`]);
+    const hoje = String((await dados.query<{ hoje: string }[]>(`SELECT CURRENT_DATE::text AS hoje`))[0].hoje).slice(0, 10);
+    const criada = await request(app.getHttpServer())
+      .post('/v1/trips')
+      .set(auth)
+      .send({ title: `Posse ${marca}`, startDate: somar(hoje, 2), endDate: somar(hoje, 4), startMode: 'from_scratch', childCount: 1, destinations: [{ cityId: cidadeId }], invites: [{ email: experiente.email, role: 'experienced_traveler' }, { email: supremo.email, role: 'supreme_traveler' }] });
+    expect(criada.status).toBe(201);
+    const tokens = enviarConvite.mock.calls.slice(-2).map((chamada) => chamada[0] as { paraEmail: string; token: string });
+    for (const pessoa of [experiente, supremo]) {
+      const token = tokens.find((item) => item.paraEmail === pessoa.email)?.token;
+      expect((await request(app.getHttpServer()).post('/v1/invitations/accept').set('Authorization', `Bearer ${pessoa.access}`).send({ token })).status).toBe(201);
+    }
+    const ficha = await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set(auth);
+    const crianca = ficha.body.participants.find((item: { partyKind: string }) => item.partyKind === 'child');
+    const linhaExperiente = ficha.body.participants.find((item: { userId: string | null }) => item.userId === experiente.userId);
+    const linhaSupremo = ficha.body.participants.find((item: { userId: string | null }) => item.userId === supremo.userId);
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${crianca.id}/role`).set(auth).send({ role: 'junior_assistant' })).body.message).toBe('O papel da criança sem conta não foi nomeado.');
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${linhaSupremo.id}/role`).set('Authorization', `Bearer ${experiente.access}`).send({ role: 'junior_assistant' })).body.message).toBe('Só o dono altera o papel.');
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/ownership`).set('Authorization', `Bearer ${experiente.access}`).send({ participantId: linhaSupremo.id })).body.message).toBe('Só o dono passa a posse.');
+    const rebaixado = await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${linhaExperiente.id}/role`).set(auth).send({ role: 'junior_assistant' });
+    expect(rebaixado.status).toBe(200);
+    const vista = await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${experiente.access}`);
+    expect(vista.body.view).toEqual({ itinerary: true, edit: false, expenses: false, documents: false });
+    expect((await request(app.getHttpServer()).patch(`/v1/trips/${criada.body.id}/participants/${linhaExperiente.id}/role`).set(auth).send({ role: 'experienced_traveler' })).status).toBe(200);
+    expect((await request(app.getHttpServer()).delete(`/v1/trips/${criada.body.id}/participants/${linhaSupremo.id}`).set('Authorization', `Bearer ${experiente.access}`)).body.message).toBe('Você não pode remover esta pessoa.');
+    expect((await request(app.getHttpServer()).delete(`/v1/trips/${criada.body.id}/participants/${linhaExperiente.id}`).set('Authorization', `Bearer ${supremo.access}`)).status).toBe(200);
+    expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set('Authorization', `Bearer ${experiente.access}`)).status).toBe(404);
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/leave`).set(auth)).body.message).toBe('O dono não sai da viagem. Passe a posse antes.');
+    const posse = await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/ownership`).set(auth).send({ participantId: linhaSupremo.id });
+    expect(posse.status).toBe(201);
+    expect(posse.body.participants.find((item: { userId: string }) => item.userId === dono.userId).role).toBe('supreme_traveler');
+    expect(posse.body.participants.find((item: { userId: string }) => item.userId === supremo.userId).role).toBe('owner');
+    const transferencia = await dados.query<{ from_user_id: string; to_user_id: string; owner_user_id: string }[]>(
+      `SELECT t.from_user_id, t.to_user_id, v.owner_user_id
+       FROM travel.trip_ownership_transfers t
+       JOIN travel.trips v ON v.id = t.trip_id
+       WHERE t.trip_id = $1`,
+      [criada.body.id],
+    );
+    expect(transferencia).toEqual([expect.objectContaining({ from_user_id: dono.userId, to_user_id: supremo.userId, owner_user_id: supremo.userId })]);
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/leave`).set(auth)).body).toEqual({ status: 'left' });
+    expect((await request(app.getHttpServer()).get(`/v1/trips/${criada.body.id}`).set(auth)).status).toBe(404);
+    expect((await request(app.getHttpServer()).post(`/v1/trips/${criada.body.id}/leave`).set('Authorization', `Bearer ${supremo.access}`)).body.message).toBe('O dono não sai da viagem. Passe a posse antes.');
+  });
 });
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>, emailInformado?: string): Promise<{ access: string; userId: string; email: string }> {
