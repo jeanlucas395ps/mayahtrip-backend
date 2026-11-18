@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { NotificacaoUseCase } from '../../notificacao/application/notificacao.use-case';
 import { UsuariosUseCase } from './usuarios.use-case';
 import {
   DenunciaLida,
@@ -15,6 +16,7 @@ export class ModeracaoUseCase {
   constructor(
     @Inject(MODERACAO) private readonly moderacao: ModeracaoRepositorio,
     @Inject(UsuariosUseCase) private readonly usuarios: UsuariosUseCase,
+    @Inject(NotificacaoUseCase) private readonly avisos: NotificacaoUseCase,
   ) {}
 
   denuncias(status: string | null): Promise<DenunciaLida[]> {
@@ -29,6 +31,7 @@ export class ModeracaoUseCase {
     const resultado = await this.moderacao.julgar(reportId, adminId, julgamento);
     if (typeof resultado === 'string') return resultado;
     if (resultado.accountId) await this.usuarios.definirAtivo(resultado.accountId, false);
+    await this.avisos.publicar(resultado.reporterId, resultado.decision === 'resolved' ? 'report.accepted' : 'report.dismissed', {}, { reportId });
     return { actionId: resultado.actionId };
   }
 

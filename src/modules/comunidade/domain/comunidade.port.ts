@@ -91,4 +91,7 @@ export interface ComunidadeRepositorio {
   avaliar(userId: string, placeId: string, entrada: AvaliacaoNova): Promise<PublicacaoLida | FalhaComunidade>;
   categorias(): Promise<{ id: string; name: string }[]>;
   denunciar(userId: string, entrada: DenunciaNova): Promise<{ id: string } | FalhaComunidade>;
+  nomeDe(userId: string): Promise<string>;
+  autorDaPublicacao(postId: string): Promise<string | null>;
+  autorDoComentario(commentId: string): Promise<string | null>;
 }

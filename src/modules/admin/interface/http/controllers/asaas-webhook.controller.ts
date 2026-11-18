@@ -27,7 +27,8 @@ export class AsaasWebhookController {
 
     const evento = typeof corpo.event === 'string' ? corpo.event : 'unknown';
     const pagamento = corpo.payment;
-    const pagamentoId = pagamento && typeof pagamento === 'object' && 'id' in pagamento ? String(pagamento.id) : null;
+    const pagamentoId = pagamento && typeof pagamento === 'object' && 'id' in pagamento ? String((pagamento as { id: unknown }).id) : null;
+    const limpo = semSegredo(corpo);
 
     await this.dados.query(
       `INSERT INTO subscription.subscription_events
@@ -36,11 +37,40 @@ export class AsaasWebhookController {
          (SELECT id FROM subscription.user_subscriptions WHERE provider_subscription_id = $4 LIMIT 1),
          'asaas', $1, $2, $3::jsonb, now()
        )`,
-      [evento, pagamentoId, JSON.stringify(corpo), pagamentoId],
+      [evento, pagamentoId, JSON.stringify(limpo), pagamentoId],
     );
+    if (pagamentoId && (evento === 'PAYMENT_CONFIRMED' || evento === 'PAYMENT_RECEIVED')) {
+      await this.dados.query(
+        `UPDATE subscription.subscription_payments
+         SET status = 'paid', paid_at = COALESCE(paid_at, clock_timestamp())
+         WHERE provider_payment_id = $1 AND status = 'pending'`,
+        [pagamentoId],
+      );
+      await this.dados.query(
+        `UPDATE subscription.user_subscriptions
+         SET status = 'active', updated_at = clock_timestamp()
+         WHERE id IN (SELECT subscription_id FROM subscription.subscription_payments WHERE provider_payment_id = $1)
+           AND status = 'past_due'`,
+        [pagamentoId],
+      );
+    }
 
     return { recebido: true };
   }
+}
+
+function semSegredo(corpo: Record<string, unknown>): Record<string, unknown> {
+  const copia: Record<string, unknown> = { ...corpo };
+  delete copia.creditCard;
+  delete copia.creditCardToken;
+  delete copia.token;
+  if (copia.payment && typeof copia.payment === 'object') {
+    const pagamento = { ...(copia.payment as Record<string, unknown>) };
+    delete pagamento.creditCard;
+    delete pagamento.creditCardToken;
+    copia.payment = pagamento;
+  }
+  return copia;
 }
 
 export function tokenConfere(esperado: string, recebido: string | undefined): boolean {

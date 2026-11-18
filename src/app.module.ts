@@ -19,11 +19,14 @@ import { CorrelationIdMiddleware } from './common/logging/correlation-id.middlew
 import { MetricsInterceptor } from './common/logging/metrics.interceptor';
 import { MetricsModule } from './common/logging/metrics.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AssinaturaModule } from './modules/assinatura/assinatura.module';
+import { MayaModule } from './modules/maya/maya.module';
 import { CatalogoModule } from './modules/catalogo/catalogo.module';
 import { ComunidadeModule } from './modules/comunidade/comunidade.module';
 import { GeografiaModule } from './modules/geografia/geografia.module';
 import { IdentidadeModule } from './modules/identidade/identidade.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
+import { NotificacaoModule } from './modules/notificacao/notificacao.module';
 import { OrganizacaoModule } from './modules/organizacao/organizacao.module';
 import { RoteiroModule } from './modules/roteiro/roteiro.module';
 import { ViagemModule } from './modules/viagem/viagem.module';
@@ -71,7 +74,10 @@ import { ViagemModule } from './modules/viagem/viagem.module';
     RoteiroModule,
     FinanceiroModule,
     OrganizacaoModule,
+    NotificacaoModule,
     ComunidadeModule,
+    MayaModule,
+    AssinaturaModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { DataSource } from 'typeorm';
 import { authConfig } from '../../config/auth.config';
 import { IdentidadeModule } from '../identidade/identidade.module';
+import { NotificacaoModule } from '../notificacao/notificacao.module';
 import { CatalogoAdminUseCase } from './application/catalogo-admin.use-case';
 import { AdministradoresUseCase } from './application/administradores.use-case';
 import { PLANOS } from './application/planos.repositorio';
@@ -40,6 +41,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
 @Module({
   imports: [
     IdentidadeModule,
+    NotificacaoModule,
     JwtModule.registerAsync({
       inject: [authConfig.KEY],
       useFactory: (config: ConfigType<typeof authConfig>) => ({
@@ -49,6 +51,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     }),
   ],
   controllers: [AdminController, CatalogoAdminController, ViagensAdminController, MalaAdminController, ModeracaoController, AsaasWebhookController],
+  exports: [AdminGuard, SessaoAdminUseCase, SESSAO_ADMIN],
   providers: [
     PlanosUseCase,
     SessaoAdminUseCase,

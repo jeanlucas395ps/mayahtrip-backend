@@ -46,7 +46,7 @@ export type FalhaModeracao = 'ausente' | 'fechada' | 'alvo';
 export interface ModeracaoRepositorio {
   denuncias(status: string | null): Promise<DenunciaLida[]>;
   assumir(reportId: string): Promise<'ok' | FalhaModeracao>;
-  julgar(reportId: string, adminId: string, julgamento: Julgamento): Promise<{ actionId: string; accountId: string | null } | FalhaModeracao>;
+  julgar(reportId: string, adminId: string, julgamento: Julgamento): Promise<{ actionId: string; accountId: string | null; reporterId: string; decision: 'resolved' | 'dismissed' } | FalhaModeracao>;
   registrarRecurso(adminId: string, actionId: string, email: string, reason: string | null): Promise<{ id: string } | FalhaModeracao>;
   lerRecurso(id: string): Promise<{ id: string; channel: string; email: string; actionId: string } | 'ausente'>;
   publicacoes(filtro: { q: string | null; from: string | null; to: string | null; status: string | null }): Promise<PublicacaoDoPainel[]>;

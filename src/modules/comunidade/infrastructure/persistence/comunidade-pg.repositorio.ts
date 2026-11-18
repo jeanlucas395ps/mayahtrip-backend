@@ -299,6 +299,21 @@ export class ComunidadePgRepositorio implements ComunidadeRepositorio {
     return lista[0];
   }
 
+  async nomeDe(userId: string): Promise<string> {
+    const linhas = await this.dados.query<{ display_name: string }[]>(`SELECT display_name FROM identity.user_profiles WHERE user_id = $1`, [userId]);
+    return linhas[0]?.display_name ?? '';
+  }
+
+  async autorDaPublicacao(postId: string): Promise<string | null> {
+    const linhas = await this.dados.query<{ user_id: string }[]>(`SELECT user_id FROM community.posts WHERE id = $1 AND deleted_at IS NULL`, [postId]);
+    return linhas[0]?.user_id ?? null;
+  }
+
+  async autorDoComentario(commentId: string): Promise<string | null> {
+    const linhas = await this.dados.query<{ user_id: string }[]>(`SELECT user_id FROM community.comments WHERE id = $1 AND deleted_at IS NULL`, [commentId]);
+    return linhas[0]?.user_id ?? null;
+  }
+
   categorias(): Promise<{ id: string; name: string }[]> {
     return this.dados.query(`SELECT id, name FROM moderation.report_categories WHERE is_active ORDER BY name`);
   }

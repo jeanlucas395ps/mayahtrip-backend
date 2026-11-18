@@ -62,7 +62,7 @@ export class ModeracaoPgRepositorio implements ModeracaoRepositorio {
     return 'ok';
   }
 
-  async julgar(reportId: string, adminId: string, julgamento: Julgamento): Promise<{ actionId: string; accountId: string | null } | FalhaModeracao> {
+  async julgar(reportId: string, adminId: string, julgamento: Julgamento): Promise<{ actionId: string; accountId: string | null; reporterId: string; decision: 'resolved' | 'dismissed' } | FalhaModeracao> {
     const linhas = await this.dados.query<{
       status: string;
       reporter_user_id: string;
@@ -102,15 +102,6 @@ export class ModeracaoPgRepositorio implements ModeracaoRepositorio {
         `UPDATE moderation.user_reports SET status = $2::community.report_status, resolved_at = clock_timestamp() WHERE id = $1`,
         [reportId, julgamento.decision],
       );
-      await tx.query(
-        `INSERT INTO notification.notifications (user_id, event_type, title, message, payload)
-         VALUES ($1, 'report.result', 'Denúncia', $2, $3::jsonb)`,
-        [
-          denuncia.reporter_user_id,
-          julgamento.decision === 'resolved' ? 'Sua denúncia foi aceita.' : 'Sua denúncia não foi aceita.',
-          JSON.stringify({ reportId, status: julgamento.decision }),
-        ],
-      );
     });
     const acoes = await this.dados.query<{ id: string }[]>(
       `INSERT INTO moderation.moderation_actions
@@ -119,7 +110,7 @@ export class ModeracaoPgRepositorio implements ModeracaoRepositorio {
        RETURNING id`,
       [adminId, dono, alvo.tipo, alvo.id, julgamento.decision === 'resolved' ? 'report.resolved' : 'report.dismissed', julgamento.reason],
     );
-    return { actionId: acoes[0].id, accountId: julgamento.deactivateAccount ? dono : null };
+    return { actionId: acoes[0].id, accountId: julgamento.deactivateAccount ? dono : null, reporterId: denuncia.reporter_user_id, decision: julgamento.decision };
   }
 
   async registrarRecurso(adminId: string, actionId: string, email: string, reason: string | null): Promise<{ id: string } | FalhaModeracao> {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { ARMAZENAMENTO, ArmazenamentoDeArquivo } from '../../identidade/domain/ports/armazenamento.port';
+import { NotificacaoUseCase } from '../../notificacao/application/notificacao.use-case';
 import {
   AbaDoFeed,
   AvaliacaoNova,
@@ -28,14 +29,21 @@ export class ComunidadeUseCase {
   constructor(
     @Inject(COMUNIDADE) private readonly comunidade: ComunidadeRepositorio,
     @Inject(ARMAZENAMENTO) private readonly arquivos: ArmazenamentoDeArquivo,
+    @Inject(NotificacaoUseCase) private readonly avisos: NotificacaoUseCase,
   ) {}
 
   feed(userId: string, aba: AbaDoFeed): Promise<PublicacaoLida[]> {
     return this.comunidade.feed(userId, aba);
   }
 
-  criar(userId: string, entrada: PublicacaoNova): Promise<PublicacaoLida | FalhaComunidade> {
-    return this.comunidade.criar(userId, entrada);
+  async criar(userId: string, entrada: PublicacaoNova): Promise<PublicacaoLida | FalhaComunidade> {
+    const criada = await this.comunidade.criar(userId, entrada);
+    if (typeof criada !== 'string') {
+      for (const mencao of criada.mentions) {
+        if (mencao.userId !== userId) await this.avisos.publicar(mencao.userId, 'post.mention', { nome: criada.displayName }, { postId: criada.id });
+      }
+    }
+    return criada;
   }
 
   async anexar(userId: string, postId: string, foto: FotoRecebida): Promise<PublicacaoLida | FalhaComunidade> {
@@ -52,16 +60,28 @@ export class ComunidadeUseCase {
     return this.comunidade.salvar(userId, postId, salvo);
   }
 
-  curtir(userId: string, postId: string, ativo: boolean): Promise<PublicacaoLida | FalhaComunidade> {
-    return this.comunidade.curtir(userId, postId, ativo);
+  async curtir(userId: string, postId: string, ativo: boolean): Promise<PublicacaoLida | FalhaComunidade> {
+    const curtida = await this.comunidade.curtir(userId, postId, ativo);
+    if (ativo && typeof curtida !== 'string' && curtida.authorId !== userId) {
+      await this.avisos.publicar(curtida.authorId, 'post.liked', { nome: await this.comunidade.nomeDe(userId) }, { postId });
+    }
+    return curtida;
   }
 
   comentarios(userId: string, postId: string): Promise<ComentarioLido[] | FalhaComunidade> {
     return this.comunidade.comentarios(userId, postId);
   }
 
-  comentar(userId: string, postId: string, content: string, parentId: string | null): Promise<ComentarioLido[] | FalhaComunidade> {
-    return this.comunidade.comentar(userId, postId, content.trim(), parentId);
+  async comentar(userId: string, postId: string, content: string, parentId: string | null): Promise<ComentarioLido[] | FalhaComunidade> {
+    const lista = await this.comunidade.comentar(userId, postId, content.trim(), parentId);
+    if (typeof lista !== 'string') {
+      const nome = await this.comunidade.nomeDe(userId);
+      const destino = parentId ? await this.comunidade.autorDoComentario(parentId) : await this.comunidade.autorDaPublicacao(postId);
+      if (destino && destino !== userId) {
+        await this.avisos.publicar(destino, parentId ? 'comment.reply' : 'comment.created', { nome }, { postId });
+      }
+    }
+    return lista;
   }
 
   apagarComentario(userId: string, commentId: string): Promise<'ok' | FalhaComunidade> {
