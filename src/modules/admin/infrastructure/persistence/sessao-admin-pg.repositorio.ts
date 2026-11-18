@@ -62,6 +62,13 @@ export class SessaoAdminPgRepositorio implements SessaoAdminRepositorio {
     return Boolean(linhas[0]);
   }
 
+  async revogarDoAdministrador(adminId: string): Promise<void> {
+    await this.dados.query(
+      `UPDATE admin.admin_sessions SET revoked_at = now() WHERE admin_user_id = $1 AND revoked_at IS NULL`,
+      [adminId],
+    );
+  }
+
   async auditar(registro: AuditoriaAdmin): Promise<void> {
     await this.dados.query(
       `INSERT INTO admin.admin_audit_logs

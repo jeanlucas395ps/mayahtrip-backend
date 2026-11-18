@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class FeatureDto {
   @IsString()
@@ -63,4 +63,37 @@ export class EntrarAdminDto {
   @IsString()
   @MinLength(8)
   senha!: string;
+}
+
+export class CriarAdministradorDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  nome!: string;
+
+  @IsEmail()
+  @MaxLength(255)
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(200)
+  senha!: string;
+}
+
+export class EditarAdministradorDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  nome!: string;
+
+  @IsEmail()
+  @MaxLength(255)
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(200)
+  senha?: string;
 }

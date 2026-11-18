@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, Param, Patch, Post, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Inject, Param, Patch, Post, Req, UseGuards, ValidationPipe } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { AdministradoresUseCase, AdministradorAusenteError, AdministradorUnicoError, EmailDeAdministradorEmUsoError } from '../../../application/administradores.use-case';
+import { AdministradorGravado } from '../../../domain/ports/administradores.port';
 import { PlanoGravado, PlanosUseCase, SalvarPlano } from '../../../application/planos.use-case';
 import { SessaoAdminUseCase } from '../../../application/sessao-admin.use-case';
-import { EntrarAdminDto, SalvarPlanoDto } from '../dto/plano.dto';
+import { CriarAdministradorDto, EditarAdministradorDto, EntrarAdminDto, SalvarPlanoDto } from '../dto/plano.dto';
 import { AdminGuard, RequestComAdmin, tokenDe } from '../guards/admin.guard';
 
 @ApiTags('admin')
@@ -11,6 +13,7 @@ export class AdminController {
   constructor(
     @Inject(PlanosUseCase) private readonly planos: PlanosUseCase,
     @Inject(SessaoAdminUseCase) private readonly sessoes: SessaoAdminUseCase,
+    @Inject(AdministradoresUseCase) private readonly administradores: AdministradoresUseCase,
   ) {}
 
   @Post('sign-in')
@@ -121,6 +124,98 @@ export class AdminController {
     });
     return { mensagem: 'Plano desativado. Quem já assinou permanece até o fim do ciclo.' };
   }
+
+  @Get('administrators')
+  @UseGuards(AdminGuard)
+  listarAdministradores(): Promise<AdministradorGravado[]> {
+    return this.administradores.listar();
+  }
+
+  @Post('administrators')
+  @UseGuards(AdminGuard)
+  async criarAdministrador(@Req() request: RequestComAdmin, @Body(corpo(CriarAdministradorDto)) dto: CriarAdministradorDto) {
+    const administrador = await executarAdmin(() => this.administradores.criar(dto));
+    await this.sessoes.auditar({
+      adminId: request.adminId,
+      action: 'admin.create',
+      entityType: 'admin_user',
+      entityId: administrador.id,
+      oldValues: null,
+      newValues: ficha(administrador),
+      ip: ipDe(request),
+    });
+    return administrador;
+  }
+
+  @Patch('administrators/:id')
+  @UseGuards(AdminGuard)
+  async editarAdministrador(
+    @Req() request: RequestComAdmin,
+    @Param('id') id: string,
+    @Body(corpo(EditarAdministradorDto)) dto: EditarAdministradorDto,
+  ) {
+    const resultado = await executarAdmin(() => this.administradores.editar(id, dto));
+    await this.sessoes.auditar({
+      adminId: request.adminId,
+      action: 'admin.update',
+      entityType: 'admin_user',
+      entityId: resultado.administrador.id,
+      oldValues: ficha(resultado.anterior),
+      newValues: { ...ficha(resultado.administrador), senhaTrocada: resultado.senhaTrocada },
+      ip: ipDe(request),
+    });
+    return resultado.administrador;
+  }
+
+  @Post('administrators/:id/activate')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  async ativarAdministrador(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<AdministradorGravado> {
+    const resultado = await executarAdmin(() => this.administradores.definirAtivo(id, true));
+    await this.sessoes.auditar({
+      adminId: request.adminId,
+      action: 'admin.activate',
+      entityType: 'admin_user',
+      entityId: id,
+      oldValues: { isActive: resultado.anterior },
+      newValues: { isActive: true },
+      ip: ipDe(request),
+    });
+    return resultado.administrador;
+  }
+
+  @Post('administrators/:id/deactivate')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.OK)
+  async desativarAdministrador(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<AdministradorGravado> {
+    const resultado = await executarAdmin(() => this.administradores.definirAtivo(id, false));
+    await this.sessoes.auditar({
+      adminId: request.adminId,
+      action: 'admin.deactivate',
+      entityType: 'admin_user',
+      entityId: id,
+      oldValues: { isActive: resultado.anterior },
+      newValues: { isActive: false },
+      ip: ipDe(request),
+    });
+    return resultado.administrador;
+  }
+
+  @Delete('administrators/:id')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async excluirAdministrador(@Req() request: RequestComAdmin, @Param('id') id: string): Promise<void> {
+    const administrador = await executarAdmin(() => this.administradores.excluir(id, request.adminId));
+    await this.sessoes.auditar({
+      adminId: request.adminId,
+      action: 'admin.delete',
+      entityType: 'admin_user',
+      entityId: id,
+      oldValues: ficha(administrador),
+      newValues: { deleted: true },
+      ip: ipDe(request),
+    });
+  }
 }
 
 function paraEntrada(dto: SalvarPlanoDto): SalvarPlano {
@@ -166,4 +261,25 @@ function resumo(plano: PlanoGravado): Record<string, unknown> {
 function ipDe(request: RequestComAdmin): string | null {
   const direto = (request.ip || request.socket?.remoteAddress || '').replace(/^::ffff:/, '').slice(0, 45);
   return direto || null;
+}
+
+function ficha(administrador: AdministradorGravado): Record<string, unknown> {
+  return { name: administrador.name, email: administrador.email, isActive: administrador.isActive };
+}
+
+async function executarAdmin<T>(acao: () => Promise<T>): Promise<T> {
+  try {
+    return await acao();
+  } catch (erro) {
+    if (erro instanceof EmailDeAdministradorEmUsoError) {
+      throw new HttpException({ message: 'Já existe um administrador com esse e-mail.' }, HttpStatus.CONFLICT);
+    }
+    if (erro instanceof AdministradorUnicoError) {
+      throw new HttpException({ message: 'Você é o único administrador ativo.' }, HttpStatus.CONFLICT);
+    }
+    if (erro instanceof AdministradorAusenteError) {
+      throw new HttpException({ message: 'Administrador não encontrado.' }, HttpStatus.NOT_FOUND);
+    }
+    throw erro;
+  }
 }

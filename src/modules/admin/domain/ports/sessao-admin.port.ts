@@ -17,5 +17,6 @@ export interface SessaoAdminRepositorio {
   marcarEntrada(adminId: string): Promise<void>;
   sessaoAtiva(tokenHash: string): Promise<string | null>;
   revogar(tokenHash: string): Promise<boolean>;
+  revogarDoAdministrador(adminId: string): Promise<void>;
   auditar(registro: AuditoriaAdmin): Promise<void>;
 }
