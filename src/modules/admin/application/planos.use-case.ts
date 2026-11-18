@@ -37,30 +37,30 @@ export class PlanosUseCase {
   async editar(
     id: string,
     entrada: SalvarPlano,
-  ): Promise<{ tipo: 'editado'; plano: PlanoGravado } | { tipo: 'nao_encontrado' } | { tipo: 'recusado'; motivo: RecusaDePlano }> {
+  ): Promise<{ tipo: 'editado'; plano: PlanoGravado; anterior: PlanoGravado } | { tipo: 'nao_encontrado' } | { tipo: 'recusado'; motivo: RecusaDePlano }> {
     const atual = await this.planos.porId(id);
     if (!atual) return { tipo: 'nao_encontrado' };
     if (atual.isFree && !entrada.isFree) return { tipo: 'recusado', motivo: 'free_imutavel' };
     const plano = await this.planos.editar(id, entrada);
-    return { tipo: 'editado', plano };
+    return { tipo: 'editado', plano, anterior: atual };
   }
 
-  async ativar(id: string): Promise<{ tipo: 'ativado' } | { tipo: 'nao_encontrado' } | { tipo: 'recusado'; motivo: RecusaDePlano }> {
+  async ativar(id: string): Promise<{ tipo: 'ativado'; isActiveAntes: boolean } | { tipo: 'nao_encontrado' } | { tipo: 'recusado'; motivo: RecusaDePlano }> {
     const plano = await this.planos.porId(id);
     if (!plano) return { tipo: 'nao_encontrado' };
     const motivo = podeAtivar(plano);
     if (motivo) return { tipo: 'recusado', motivo };
     await this.planos.definirAtivo(id, true);
-    return { tipo: 'ativado' };
+    return { tipo: 'ativado', isActiveAntes: plano.isActive };
   }
 
-  async desativar(id: string): Promise<{ tipo: 'desativado' } | { tipo: 'nao_encontrado' } | { tipo: 'recusado'; motivo: RecusaDePlano }> {
+  async desativar(id: string): Promise<{ tipo: 'desativado'; isActiveAntes: boolean } | { tipo: 'nao_encontrado' } | { tipo: 'recusado'; motivo: RecusaDePlano }> {
     const plano = await this.planos.porId(id);
     if (!plano) return { tipo: 'nao_encontrado' };
     const motivo = podeDesativar(plano);
     if (motivo) return { tipo: 'recusado', motivo };
     await this.planos.definirAtivo(id, false);
-    return { tipo: 'desativado' };
+    return { tipo: 'desativado', isActiveAntes: plano.isActive };
   }
 }
 

@@ -6,7 +6,10 @@ import { DataSource } from 'typeorm';
 import { authConfig } from '../../config/auth.config';
 import { PLANOS } from './application/planos.repositorio';
 import { PlanosUseCase } from './application/planos.use-case';
+import { SessaoAdminUseCase } from './application/sessao-admin.use-case';
+import { SESSAO_ADMIN } from './domain/ports/sessao-admin.port';
 import { PlanosPgRepositorio } from './infrastructure/persistence/planos-pg.repositorio';
+import { SessaoAdminPgRepositorio } from './infrastructure/persistence/sessao-admin-pg.repositorio';
 import { AdminController } from './interface/http/controllers/admin.controller';
 import { AsaasWebhookController } from './interface/http/controllers/asaas-webhook.controller';
 import { AdminGuard } from './interface/http/guards/admin.guard';
@@ -22,7 +25,13 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
     }),
   ],
   controllers: [AdminController, AsaasWebhookController],
-  providers: [PlanosUseCase, AdminGuard, { provide: PLANOS, useClass: PlanosPgRepositorio }],
+  providers: [
+    PlanosUseCase,
+    SessaoAdminUseCase,
+    AdminGuard,
+    { provide: PLANOS, useClass: PlanosPgRepositorio },
+    { provide: SESSAO_ADMIN, useClass: SessaoAdminPgRepositorio },
+  ],
 })
 export class AdminModule implements OnModuleInit {
   private readonly log = new Logger(AdminModule.name);
