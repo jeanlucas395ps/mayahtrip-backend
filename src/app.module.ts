@@ -22,6 +22,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { CatalogoModule } from './modules/catalogo/catalogo.module';
 import { GeografiaModule } from './modules/geografia/geografia.module';
 import { IdentidadeModule } from './modules/identidade/identidade.module';
+import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { RoteiroModule } from './modules/roteiro/roteiro.module';
 import { ViagemModule } from './modules/viagem/viagem.module';
 
@@ -66,6 +67,7 @@ import { ViagemModule } from './modules/viagem/viagem.module';
     CatalogoModule,
     ViagemModule,
     RoteiroModule,
+    FinanceiroModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
