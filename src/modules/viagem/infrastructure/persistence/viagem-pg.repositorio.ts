@@ -170,7 +170,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
     if (!podeConvidar(papel)) return 'semConvite';
     try {
       return await this.dados.transaction(async (tx) => {
-        const viagem = await tx.query<{ title: string }[]>(`SELECT title FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`, [viagemId]);
+        const viagem = await tx.query<{ title: string }[]>(`SELECT title FROM travel.trips WHERE id = $1 AND deleted_at IS NULL AND is_active`, [viagemId]);
         const perfis = await tx.query<{ display_name: string }[]>(`SELECT display_name FROM identity.user_profiles WHERE user_id = $1`, [userId]);
         return gravarConvites(tx, viagemId, userId, perfis[0]?.display_name ?? 'Viajante 1', viagem[0]?.title ?? '', convites);
       });
@@ -266,7 +266,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
   async clonar(userId: string, viagemId: string): Promise<string | 'ausente' | 'privada'> {
     return this.dados.transaction(async (tx) => {
       const origens = await tx.query<{ id: string; visibility: string }[]>(
-        `SELECT id, visibility::text FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
+        `SELECT id, visibility::text FROM travel.trips WHERE id = $1 AND deleted_at IS NULL AND is_active`,
         [viagemId],
       );
       if (origens.length === 0) return 'ausente';
@@ -335,7 +335,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
          count(*) FILTER (WHERE ${STATUS} IN ('upcoming', 'happening'))::text AS proximas,
          count(*) FILTER (WHERE ${STATUS} = 'draft')::text AS rascunhos
        FROM travel.trips t
-       WHERE t.deleted_at IS NULL AND ${ACESSO}`,
+       WHERE t.deleted_at IS NULL AND t.is_active AND ${ACESSO}`,
       [donoId],
     );
     return {
@@ -371,7 +371,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
     const papel = await papelDe(this.dados, viagemId, donoId, false);
     if (papel === 'ausente') return 'ausente';
     const linhas = await this.dados.query<{ cover_storage_key: string | null }[]>(
-      `SELECT cover_storage_key FROM travel.trips WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT cover_storage_key FROM travel.trips WHERE id = $1 AND deleted_at IS NULL AND is_active`,
       [viagemId],
     );
     return linhas[0]?.cover_storage_key ?? null;
@@ -415,7 +415,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
                   i.role::text AS role, tr.title, lower(caller.email) AS caller_email
            FROM travel.trip_invitation_tokens tok
            JOIN travel.trip_invitations i ON i.id = tok.invitation_id
-           JOIN travel.trips tr ON tr.id = i.trip_id AND tr.deleted_at IS NULL
+           JOIN travel.trips tr ON tr.id = i.trip_id AND tr.deleted_at IS NULL AND tr.is_active
            JOIN identity.users caller ON caller.id = $2 AND caller.deleted_at IS NULL
            WHERE tok.token_hash = $1
            FOR UPDATE OF tok`,
@@ -460,7 +460,7 @@ export class ViagemPgRepositorio implements ViagemRepositorio {
                WHERE p.trip_id = t.id AND p.user_id = $1 AND p.removed_at IS NULL
                LIMIT 1) AS caller_role
        FROM travel.trips t
-       WHERE t.deleted_at IS NULL AND ${ACESSO}
+       WHERE t.deleted_at IS NULL AND t.is_active AND ${ACESSO}
          AND ($2::uuid IS NULL OR t.id = $2)
          ${filtroSql}
        ORDER BY t.start_date ASC NULLS LAST, t.id`,
@@ -655,7 +655,7 @@ async function papelDe(
     `SELECT p.role::text AS role
      FROM travel.trips t
      LEFT JOIN travel.trip_participants p ON p.trip_id = t.id AND p.user_id = $2 AND p.removed_at IS NULL
-     WHERE t.id = $1 AND t.deleted_at IS NULL
+     WHERE t.id = $1 AND t.deleted_at IS NULL AND t.is_active
        AND (t.owner_user_id = $2 OR p.id IS NOT NULL)
      ${travar ? 'FOR UPDATE OF t' : ''}`,
     [viagemId, userId],

@@ -196,7 +196,7 @@ export class RoteiroPgRepositorio implements RoteiroRepositorio {
       `SELECT p.role::text AS role
        FROM travel.trips t
        LEFT JOIN travel.trip_participants p ON p.trip_id = t.id AND p.user_id = $2 AND p.removed_at IS NULL
-       WHERE t.id = $1 AND t.deleted_at IS NULL AND (t.owner_user_id = $2 OR p.id IS NOT NULL)`,
+       WHERE t.id = $1 AND t.deleted_at IS NULL AND t.is_active AND (t.owner_user_id = $2 OR p.id IS NOT NULL)`,
       [viagemId, userId],
     );
     return linhas[0];

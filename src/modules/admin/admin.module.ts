@@ -20,6 +20,10 @@ import { AdministradoresPgRepositorio } from './infrastructure/persistence/admin
 import { PlanosPgRepositorio } from './infrastructure/persistence/planos-pg.repositorio';
 import { SessaoAdminPgRepositorio } from './infrastructure/persistence/sessao-admin-pg.repositorio';
 import { UsuariosPgRepositorio } from './infrastructure/persistence/usuarios-pg.repositorio';
+import { ViagensAdminUseCase } from './application/viagens-admin.use-case';
+import { VIAGENS_ADMIN } from './domain/ports/viagens-admin.port';
+import { ViagensAdminPgRepositorio } from './infrastructure/persistence/viagens-admin-pg.repositorio';
+import { ViagensAdminController } from './interface/http/controllers/viagens-admin.controller';
 import { CatalogoAdminController } from './interface/http/controllers/catalogo-admin.controller';
 import { AdminController } from './interface/http/controllers/admin.controller';
 import { AsaasWebhookController } from './interface/http/controllers/asaas-webhook.controller';
@@ -36,19 +40,21 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
       }),
     }),
   ],
-  controllers: [AdminController, CatalogoAdminController, AsaasWebhookController],
+  controllers: [AdminController, CatalogoAdminController, ViagensAdminController, AsaasWebhookController],
   providers: [
     PlanosUseCase,
     SessaoAdminUseCase,
     AdministradoresUseCase,
     UsuariosUseCase,
     CatalogoAdminUseCase,
+    ViagensAdminUseCase,
     AdminGuard,
     { provide: PLANOS, useClass: PlanosPgRepositorio },
     { provide: SESSAO_ADMIN, useClass: SessaoAdminPgRepositorio },
     { provide: ADMINISTRADORES, useClass: AdministradoresPgRepositorio },
     { provide: USUARIOS, useClass: UsuariosPgRepositorio },
     { provide: CATALOGO_ADMIN, useClass: CatalogoAdminPgRepositorio },
+    { provide: VIAGENS_ADMIN, useClass: ViagensAdminPgRepositorio },
   ],
 })
 export class AdminModule implements OnModuleInit {

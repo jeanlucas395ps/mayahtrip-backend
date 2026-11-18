@@ -511,6 +511,7 @@ CREATE TABLE travel.trips (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
+  is_active boolean NOT NULL DEFAULT true,
   CONSTRAINT trips_dates_or_duration CHECK (
     (start_date IS NULL AND end_date IS NULL AND duration_days IS NOT NULL)
     OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date)
