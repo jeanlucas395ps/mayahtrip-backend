@@ -145,7 +145,7 @@ CREATE TABLE identity.user_profiles (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT user_profiles_username_check CHECK (
     char_length(username) BETWEEN 1 AND 80
-    AND username ~ '^[[:alpha:][:digit:]._-]+$'
+    AND username ~ '^[[:alpha:][:digit:]#._$&-]+$'
   )
 );
 
@@ -156,7 +156,7 @@ COMMENT ON COLUMN identity.user_profiles.display_name IS
   'Um nome só, como a folha de editar perfil. Sem nome e sobrenome separados.';
 COMMENT ON COLUMN identity.user_profiles.bio IS 'No máximo 150 caracteres (BUSINESS/34).';
 COMMENT ON COLUMN identity.user_profiles.username IS
-  'Único sem distinguir maiúscula. Letras, números, ponto, underline e hífen. O @ digitado no início é removido na API.';
+  'Único sem distinguir maiúscula. Letras, números e # . _ - $ &. O @ digitado no início é removido na API.';
 COMMENT ON COLUMN identity.user_profiles.visibility IS
   'Público é o padrão. Privado só mostra o conteúdo de perfil para quem já segue. Seguir um privado cria pedido.';
 

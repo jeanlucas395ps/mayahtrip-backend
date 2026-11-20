@@ -8,6 +8,8 @@ import { MetricsModule } from '../../common/logging/metrics.module';
 import { ConfirmarContaUseCase, ReenviarCodigoUseCase } from './application/use-cases/confirmar-conta.use-case';
 import { CriarContaUseCase, CODIGO_TTL_MINUTOS } from './application/use-cases/criar-conta.use-case';
 import { EntrarComGoogleUseCase, EntrarComSenhaUseCase } from './application/use-cases/entrar.use-case';
+import { VerificarEmailDisponivelUseCase } from './application/use-cases/verificar-email-disponivel.use-case';
+import { VerificarUsernameDisponivelUseCase } from './application/use-cases/verificar-username-disponivel.use-case';
 import { EmitirHandoffUseCase, TrocarHandoffUseCase } from './application/use-cases/handoff.use-case';
 import {
   ConferirCodigoDeSenhaUseCase,
@@ -30,11 +32,13 @@ import { LOCALIZADOR } from './domain/ports/localizador.port';
 import { PERFIL_REPOSITORIO } from './domain/ports/perfil-repositorio.port';
 import { PREFERENCIA_REPOSITORIO } from './domain/ports/preferencia-repositorio.port';
 import { PREPARADOR_DE_AVATAR } from './domain/ports/preparador-de-avatar.port';
-import { REMETENTE_DE_EMAIL } from './domain/ports/remetente-de-email.port';
+import { REMETENTE_DE_EMAIL, RemetenteDeEmail } from './domain/ports/remetente-de-email.port';
 import { RECUPERACAO_DE_SENHA_REPOSITORIO } from './domain/ports/recuperacao-de-senha-repositorio.port';
 import { RELOGIO } from './domain/ports/relogio.port';
 import { SESSAO_REPOSITORIO } from './domain/ports/sessao-repositorio.port';
 import { VALIDADOR_TOKEN_GOOGLE } from './domain/ports/validador-token-google.port';
+import { emailConfig } from '../../config/email.config';
+import { ResendRemetenteDeEmailAdapter } from './infrastructure/email/resend-remetente-de-email.adapter';
 import { SmtpRemetenteDeEmailAdapter } from './infrastructure/email/smtp-remetente-de-email.adapter';
 import { SharpPreparadorDeAvatar } from './infrastructure/image/sharp-preparador-de-avatar';
 import { IpapiLocalizador } from './infrastructure/location/ipapi-localizador';
@@ -73,6 +77,8 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
   controllers: [AuthController, MeuPerfilController, PerfilPublicoController, PreferenciaController, DocumentoController, VisitasController],
   providers: [
     CriarContaUseCase,
+    VerificarEmailDisponivelUseCase,
+    VerificarUsernameDisponivelUseCase,
     ConfirmarContaUseCase,
     ReenviarCodigoUseCase,
     EntrarComSenhaUseCase,
@@ -101,7 +107,20 @@ import { AccessTokenGuard, AccessTokenOpcionalGuard } from './interface/http/gua
     { provide: RECUPERACAO_DE_SENHA_REPOSITORIO, useClass: RecuperacaoDeSenhaTypeOrmRepositorio },
     { provide: CODIGO_HANDOFF_REPOSITORIO, useClass: CodigoHandoffTypeOrmRepositorio },
     { provide: HASH_DE_SENHA, useClass: Argon2HashDeSenhaAdapter },
-    { provide: REMETENTE_DE_EMAIL, useClass: SmtpRemetenteDeEmailAdapter },
+    {
+      provide: REMETENTE_DE_EMAIL,
+      inject: [emailConfig.KEY, signUpConfig.KEY],
+      useFactory: (
+        email: ConfigType<typeof emailConfig>,
+        cadastro: ConfigType<typeof signUpConfig>,
+      ): RemetenteDeEmail => {
+        const resendKey = (process.env.RESEND_API_KEY ?? '').trim();
+        if (resendKey) {
+          return new ResendRemetenteDeEmailAdapter(email, cadastro, resendKey);
+        }
+        return new SmtpRemetenteDeEmailAdapter(email, cadastro);
+      },
+    },
     { provide: RELOGIO, useClass: SistemaRelogioAdapter },
     { provide: LISTA_DE_REVOGACAO, useClass: RedisListaDeRevogacao },
     { provide: VALIDADOR_TOKEN_GOOGLE, useClass: GoogleValidadorTokenAdapter },

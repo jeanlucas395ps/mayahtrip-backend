@@ -3,13 +3,16 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import {
   CatalogoAdminRepositorio,
+  CaminhoMidiaDoLugar,
   CategoriaAdmin,
+  CidadeResumoAdmin,
   EnderecoEntrada,
   FalhaCatalogo,
   HorarioEntrada,
   IdiomaCatalogo,
   LugarAdmin,
   LugarResumo,
+  PaginaDeLugares,
   PrecoEntrada,
   ReferenciaEntrada,
   SalvarCategoria,
@@ -25,7 +28,15 @@ type Consulta = (sql: string, params?: unknown[]) => Promise<unknown>;
 export class CatalogoAdminPgRepositorio implements CatalogoAdminRepositorio {
   constructor(@Inject(DataSource) private readonly dados: DataSource) {}
 
-  async listar(texto: string, status: StatusLugar | null): Promise<LugarResumo[]> {
+  async listar(texto: string, status: StatusLugar | null, page: number, pageSize: number): Promise<PaginaDeLugares> {
+    const offset = (page - 1) * pageSize;
+    const totalLinhas = await this.dados.query<{ total: string }[]>(
+      `SELECT count(*)::text AS total
+       FROM catalog.places p
+       WHERE ($1::text = '' OR p.name ILIKE $2 ESCAPE '\\' OR p.slug ILIKE $2 ESCAPE '\\')
+         AND ($3::text IS NULL OR p.status = $3)`,
+      [texto, comoBusca(texto), status],
+    );
     const linhas = await this.dados.query<LinhaResumo[]>(
       `SELECT p.id, p.slug, p.name, p.status, c.name AS city_name
        FROM catalog.places p
@@ -33,16 +44,53 @@ export class CatalogoAdminPgRepositorio implements CatalogoAdminRepositorio {
        WHERE ($1::text = '' OR p.name ILIKE $2 ESCAPE '\\' OR p.slug ILIKE $2 ESCAPE '\\')
          AND ($3::text IS NULL OR p.status = $3)
        ORDER BY p.updated_at DESC, p.id
-       LIMIT 50`,
-      [texto, comoBusca(texto), status],
+       LIMIT $4 OFFSET $5`,
+      [texto, comoBusca(texto), status, pageSize, offset],
     );
-    return linhas.map((linha) => ({
-      id: linha.id,
-      slug: linha.slug,
-      name: linha.name,
-      status: linha.status,
+    return {
+      items: linhas.map((linha) => ({
+        id: linha.id,
+        slug: linha.slug,
+        name: linha.name,
+        status: linha.status,
+        cityName: linha.city_name,
+      })),
+      total: Number(totalLinhas[0]?.total ?? 0),
+      page,
+      pageSize,
+    };
+  }
+
+  async caminhoMidia(lugarId: string): Promise<CaminhoMidiaDoLugar | null> {
+    const linhas = await this.dados.query<{ slug: string; name: string; city_name: string | null; country_name: string | null }[]>(
+      `SELECT p.slug, p.name, c.name AS city_name, pais.name AS country_name
+       FROM catalog.places p
+       LEFT JOIN geography.cities c ON c.id = p.city_id
+       LEFT JOIN geography.countries pais ON pais.id = c.country_id
+       WHERE p.id = $1`,
+      [lugarId],
+    );
+    const linha = linhas[0];
+    if (!linha) return null;
+    return {
+      placeSlug: linha.slug,
+      placeName: linha.name,
       cityName: linha.city_name,
-    }));
+      countryName: linha.country_name,
+    };
+  }
+
+  async buscarCidades(texto: string): Promise<CidadeResumoAdmin[]> {
+    const linhas = await this.dados.query<{ id: string; name: string; country_name: string | null }[]>(
+      `SELECT c.id, c.name, p.name AS country_name
+       FROM geography.cities c
+       LEFT JOIN geography.countries p ON p.id = c.country_id
+       WHERE ($1::text = '' OR c.name ILIKE $2 ESCAPE '\\' OR p.name ILIKE $2 ESCAPE '\\')
+       ORDER BY c.name, c.id
+       LIMIT 30`,
+      [texto, comoBusca(texto)],
+    );
+    return linhas.map((linha) => ({ id: linha.id, name: linha.name, countryName: linha.country_name }));
   }
 
   async ficha(id: string): Promise<LugarAdmin | null> {

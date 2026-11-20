@@ -13,6 +13,7 @@ import { rateLimitConfig } from './config/rate-limit.config';
 import { readmeConfig } from './config/readme.config';
 import { redisConfig } from './config/redis.config';
 import { signUpConfig } from './config/sign-up.config';
+import { storageConfig } from './config/storage.config';
 import { validationSchema } from './config/validation.schema';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/logging/correlation-id.middleware';
@@ -36,7 +37,7 @@ import { ViagemModule } from './modules/viagem/viagem.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, authConfig, emailConfig, signUpConfig, readmeConfig, redisConfig, rateLimitConfig],
+      load: [appConfig, databaseConfig, authConfig, emailConfig, signUpConfig, readmeConfig, redisConfig, rateLimitConfig, storageConfig],
       validationSchema,
     }),
     TypeOrmModule.forRootAsync({

@@ -27,7 +27,7 @@ describe('Sair e senha nova (e2e, Postgres real)', () => {
   let app: INestApplication;
   let dados: DataSource;
   const relogio = new RelogioControlado();
-  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue({ entregue: true });
   const validarGoogle = vi.fn();
 
   beforeAll(async () => {
@@ -54,7 +54,7 @@ describe('Sair e senha nova (e2e, Postgres real)', () => {
   async function cadastrar(email = `senha-${randomUUID()}@exemplo.com`): Promise<{ email: string; codigo: string }> {
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({ nome: 'Pessoa E2E', usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true });
     expect(resposta.status).toBe(202);
     const codigo = enviarCodigoDeVerificacao.mock.calls.at(-1)?.[0].codigo as string;
     return { email, codigo };

@@ -15,7 +15,7 @@ describe('Plataforma: fonte, fila, ajuste e expiração (e2e, Postgres real)', (
   let app: INestApplication;
   let dados: DataSource;
   let admin: { Authorization: string };
-  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue({ entregue: true });
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_LIMITE = '1000';
@@ -319,7 +319,7 @@ async function abrirItem(app: INestApplication, admin: { Authorization: string }
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>): Promise<{ access: string; userId: string; email: string }> {
   const email = `plataforma-${randomUUID()}@exemplo.com`;
-  expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
+  expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
   const codigo = enviar.mock.calls.at(-1)?.[0].codigo as string;
   expect((await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo })).status).toBe(200);
   const login = await request(app.getHttpServer()).post('/v1/auth/sign-in').send({ email, senha: 'umaSenhaForte123' });

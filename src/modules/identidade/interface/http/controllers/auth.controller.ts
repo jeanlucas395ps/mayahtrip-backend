@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpException,
   HttpStatus,
   Inject,
   Post,
+  Query,
   Req,
   UseGuards,
   ValidationPipe,
@@ -21,7 +23,11 @@ import {
   RedefinirSenhaUseCase,
   ResultadoCodigoSenha,
 } from '../../../application/use-cases/recuperar-senha.use-case';
+import { VerificarEmailDisponivelUseCase } from '../../../application/use-cases/verificar-email-disponivel.use-case';
+import { VerificarUsernameDisponivelUseCase } from '../../../application/use-cases/verificar-username-disponivel.use-case';
 import { ParDeTokens, SessaoDeAcesso } from '../../../application/sessao-de-acesso';
+import { UsernameEmUsoError } from '../../../domain/ports/perfil-repositorio.port';
+import { UsernameInvalidoError } from '../../../domain/value-objects/username.vo';
 import { Idioma, LocaleOficial } from '../../../domain/value-objects/idioma.vo';
 import { CriarContaDto } from '../dto/criar-conta.dto';
 import {
@@ -34,9 +40,12 @@ import {
   RenovarSessaoDto,
   SairDto,
   TrocarHandoffDto,
+  VerificarEmailQueryDto,
+  VerificarUsernameQueryDto,
 } from '../dto/auth.dto';
 import { AccessTokenGuard, RequestComConta } from '../guards/access-token.guard';
 import { mensagem, mensagemCodigoIncorreto } from '../mensagens-identidade';
+import { mensagemPerfil } from '../mensagens-perfil';
 
 const MENSAGEM_CADASTRO =
   'Se o e-mail informado ainda não tiver conta, enviaremos um código de verificação para ele.';
@@ -55,22 +64,59 @@ export class AuthController {
     @Inject(PedirCodigoDeSenhaUseCase) private readonly pedirSenha: PedirCodigoDeSenhaUseCase,
     @Inject(ConferirCodigoDeSenhaUseCase) private readonly conferirSenha: ConferirCodigoDeSenhaUseCase,
     @Inject(RedefinirSenhaUseCase) private readonly redefinirSenha: RedefinirSenhaUseCase,
+    @Inject(VerificarEmailDisponivelUseCase) private readonly verificarEmail: VerificarEmailDisponivelUseCase,
+    @Inject(VerificarUsernameDisponivelUseCase) private readonly verificarUsername: VerificarUsernameDisponivelUseCase,
   ) {}
+
+  @Get('email-availability')
+  @HttpCode(HttpStatus.OK)
+  async emailDisponivel(
+    @Query(new ValidationPipe({ expectedType: VerificarEmailQueryDto, transform: true, whitelist: true }))
+    query: VerificarEmailQueryDto,
+  ): Promise<{ disponivel: boolean }> {
+    return this.verificarEmail.executar(query.email);
+  }
+
+  @Get('username-availability')
+  @HttpCode(HttpStatus.OK)
+  async usernameDisponivel(
+    @Query(new ValidationPipe({ expectedType: VerificarUsernameQueryDto, transform: true, whitelist: true }))
+    query: VerificarUsernameQueryDto,
+  ): Promise<{ disponivel: boolean }> {
+    try {
+      return await this.verificarUsername.executar(query.usuario);
+    } catch (erro) {
+      if (erro instanceof UsernameInvalidoError) {
+        throw new HttpException({ message: mensagemPerfil('username', 'pt-BR') }, HttpStatus.BAD_REQUEST);
+      }
+      throw erro;
+    }
+  }
 
   @Post('sign-up')
   @HttpCode(HttpStatus.ACCEPTED)
   async criar(
     @Body(corpo(CriarContaDto))
     dto: CriarContaDto,
-  ): Promise<{ mensagem: string }> {
-    await this.criarConta.executar({
-      nome: dto.nome,
-      email: dto.email,
-      senhaPlana: dto.senha,
-      idioma: dto.idioma ?? 'pt-BR',
-    });
-
-    return { mensagem: MENSAGEM_CADASTRO };
+  ): Promise<{ mensagem: string; codigoDev?: string }> {
+    try {
+      const resultado = await this.criarConta.executar({
+        nome: dto.nome,
+        usuario: dto.usuario,
+        email: dto.email,
+        senhaPlana: dto.senha,
+        idioma: dto.idioma ?? 'pt-BR',
+      });
+      return comCodigoDev({ mensagem: MENSAGEM_CADASTRO }, resultado.codigoDev);
+    } catch (erro) {
+      if (erro instanceof UsernameEmUsoError) {
+        throw new HttpException({ message: mensagemPerfil('usernameEmUso', 'pt-BR') }, HttpStatus.CONFLICT);
+      }
+      if (erro instanceof UsernameInvalidoError) {
+        throw new HttpException({ message: mensagemPerfil('username', 'pt-BR') }, HttpStatus.BAD_REQUEST);
+      }
+      throw erro;
+    }
   }
 
   @Post('confirm')
@@ -98,7 +144,7 @@ export class AuthController {
 
   @Post('resend-code')
   @HttpCode(HttpStatus.ACCEPTED)
-  async reenviar(@Body(corpo(ReenviarCodigoDto)) dto: ReenviarCodigoDto): Promise<{ mensagem: string }> {
+  async reenviar(@Body(corpo(ReenviarCodigoDto)) dto: ReenviarCodigoDto): Promise<{ mensagem: string; codigoDev?: string }> {
     const locale = localeDe(dto.idioma);
     const resultado = await this.reenviarCodigo.executar(dto.email, locale);
 
@@ -106,7 +152,7 @@ export class AuthController {
       throw new HttpException({ message: mensagem('reenvioCedo', locale) }, HttpStatus.BAD_REQUEST);
     }
 
-    return { mensagem: mensagem('reenvioOk', locale) };
+    return comCodigoDev({ mensagem: mensagem('reenvioOk', locale) }, resultado.codigoDev);
   }
 
   @Post('sign-in')
@@ -162,21 +208,21 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.ACCEPTED)
-  async esqueci(@Body(corpo(PedirSenhaDto)) dto: PedirSenhaDto): Promise<{ mensagem: string }> {
+  async esqueci(@Body(corpo(PedirSenhaDto)) dto: PedirSenhaDto): Promise<{ mensagem: string; codigoDev?: string }> {
     const locale = localeDe(dto.idioma);
-    await this.pedirSenha.executar(dto.email, locale);
-    return { mensagem: mensagem('pedidoSenha', locale) };
+    const resultado = await this.pedirSenha.executar(dto.email, locale);
+    return comCodigoDev({ mensagem: mensagem('pedidoSenha', locale) }, resultado.codigoDev);
   }
 
   @Post('forgot-password/resend')
   @HttpCode(HttpStatus.ACCEPTED)
-  async reenviarSenha(@Body(corpo(PedirSenhaDto)) dto: PedirSenhaDto): Promise<{ mensagem: string }> {
+  async reenviarSenha(@Body(corpo(PedirSenhaDto)) dto: PedirSenhaDto): Promise<{ mensagem: string; codigoDev?: string }> {
     const locale = localeDe(dto.idioma);
     const resultado = await this.pedirSenha.reenviar(dto.email, locale);
     if (resultado.tipo === 'cedo') {
       throw new HttpException({ message: mensagem('reenvioCedo', locale) }, HttpStatus.BAD_REQUEST);
     }
-    return { mensagem: mensagem('pedidoSenha', locale) };
+    return comCodigoDev({ mensagem: mensagem('pedidoSenha', locale) }, resultado.codigoDev);
   }
 
   @Post('forgot-password/confirm')
@@ -225,6 +271,17 @@ function corpo<T>(tipo: new () => T): ValidationPipe {
 
 function localeDe(valor: string | undefined): LocaleOficial {
   return new Idioma(valor ?? 'pt-BR').valor;
+}
+
+/** Em produção nunca devolve o código; em DEV só se o remetente falhou. */
+function comCodigoDev<T extends { mensagem: string }>(
+  base: T,
+  codigoDev: string | undefined,
+): T & { codigoDev?: string } {
+  if (!codigoDev || (process.env.NODE_ENV ?? 'development') === 'production') {
+    return base;
+  }
+  return { ...base, codigoDev };
 }
 
 function recusarCodigo(resultado: ResultadoCodigoSenha, locale: LocaleOficial): never {

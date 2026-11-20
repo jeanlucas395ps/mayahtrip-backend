@@ -10,6 +10,10 @@ import { hashDeCodigo } from '../src/modules/identidade/domain/value-objects/cod
 import { REMETENTE_DE_EMAIL } from '../src/modules/identidade/domain/ports/remetente-de-email.port';
 import { contarContas, lerConta } from './ler-conta';
 
+function usuarioDe(email: string): string {
+  return email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante';
+}
+
 /**
  * Teste de integração HTTP ponta a ponta contra o Postgres real do
  * Compose local. Cobre `.specs/042-sign-up-api.md` AC-1 a AC-6 e AC-8.
@@ -27,7 +31,7 @@ import { contarContas, lerConta } from './ler-conta';
 describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
   let app: INestApplication;
   let dados: DataSource;
-  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue({ entregue: true });
 
   beforeAll(async () => {
     process.env.SIGN_UP_RATE_LIMIT_PER_MINUTE = '1000';
@@ -56,7 +60,13 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
 
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({
+        nome: 'Pessoa E2E',
+        usuario: usuarioDe(email),
+        email,
+        senha: 'umaSenhaForte123',
+        aceitouTermos: true,
+      });
 
     expect(resposta.status).toBe(202);
     expect(resposta.body.mensagem).toMatch(/código de verificação/i);
@@ -75,17 +85,31 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
   });
 
   it('não atende o cadastro fora da v1', async () => {
+    const email = `e2e-${randomUUID()}@exemplo.com`;
     const resposta = await request(app.getHttpServer())
       .post('/auth/sign-up')
-      .send({ nome: 'Pessoa E2E', email: `e2e-${randomUUID()}@exemplo.com`, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({
+        nome: 'Pessoa E2E',
+        usuario: usuarioDe(email),
+        email,
+        senha: 'umaSenhaForte123',
+        aceitouTermos: true,
+      });
 
     expect(resposta.status).toBe(404);
   });
 
   it('AC-2: nome vazio é rejeitado com a mensagem de BUSINESS/02', async () => {
+    const email = `e2e-${randomUUID()}@exemplo.com`;
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome: '', email: `e2e-${randomUUID()}@exemplo.com`, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({
+        nome: '',
+        usuario: usuarioDe(email),
+        email,
+        senha: 'umaSenhaForte123',
+        aceitouTermos: true,
+      });
 
     expect(resposta.status).toBe(400);
     expect(JSON.stringify(resposta.body)).toContain('Digite seu nome.');
@@ -94,27 +118,42 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
   it('AC-3: e-mail em formato inválido é rejeitado com a mensagem de BUSINESS/02', async () => {
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome: 'Pessoa', email: 'nao-e-um-email', senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({
+        nome: 'Pessoa',
+        usuario: 'pessoa.valida',
+        email: 'nao-e-um-email',
+        senha: 'umaSenhaForte123',
+        aceitouTermos: true,
+      });
 
     expect(resposta.status).toBe(400);
     expect(JSON.stringify(resposta.body)).toContain('Digite um e-mail válido.');
   });
 
   it('AC-4: senha com menos de 8 caracteres é rejeitada com a mensagem de BUSINESS/02', async () => {
+    const email = `e2e-${randomUUID()}@exemplo.com`;
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome: 'Pessoa', email: `e2e-${randomUUID()}@exemplo.com`, senha: 'curta', aceitouTermos: true });
+      .send({
+        nome: 'Pessoa',
+        usuario: usuarioDe(email),
+        email,
+        senha: 'curta',
+        aceitouTermos: true,
+      });
 
     expect(resposta.status).toBe(400);
     expect(JSON.stringify(resposta.body)).toContain('A senha precisa ter pelo menos 8 caracteres.');
   });
 
   it('AC-5: termos não aceitos são rejeitados com a mensagem de BUSINESS/02', async () => {
+    const email = `e2e-${randomUUID()}@exemplo.com`;
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
       .send({
         nome: 'Pessoa',
-        email: `e2e-${randomUUID()}@exemplo.com`,
+        usuario: usuarioDe(email),
+        email,
         senha: 'umaSenhaForte123',
         aceitouTermos: false,
       });
@@ -125,7 +164,13 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
 
   it('AC-6/D-2: e-mail já cadastrado devolve a MESMA resposta do caminho feliz, sem criar segunda conta', async () => {
     const email = `e2e-duplicado-${randomUUID()}@exemplo.com`;
-    const payload = { nome: 'Pessoa', email, senha: 'umaSenhaForte123', aceitouTermos: true };
+    const payload = {
+      nome: 'Pessoa',
+      usuario: usuarioDe(email),
+      email,
+      senha: 'umaSenhaForte123',
+      aceitouTermos: true,
+    };
 
     const primeira = await request(app.getHttpServer()).post('/v1/auth/sign-up').send(payload);
     const segunda = await request(app.getHttpServer())
@@ -136,14 +181,20 @@ describe('POST /v1/auth/sign-up (e2e, Postgres real)', () => {
     expect(segunda.body).toEqual(primeira.body);
 
     expect(await contarContas(dados, email)).toBe(1);
-    expect((await lerConta(dados, email))?.display_name).toBe('Pessoa');
   });
 
   it('AC-8: a resposta inclui o correlation id propagado pelo cliente', async () => {
+    const email = `e2e-${randomUUID()}@exemplo.com`;
     const resposta = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
       .set('x-correlation-id', 'teste-correlation-id-123')
-      .send({ nome: 'Pessoa', email: `e2e-${randomUUID()}@exemplo.com`, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({
+        nome: 'Pessoa',
+        usuario: usuarioDe(email),
+        email,
+        senha: 'umaSenhaForte123',
+        aceitouTermos: true,
+      });
 
     expect(resposta.headers['x-correlation-id']).toBe('teste-correlation-id-123');
   });

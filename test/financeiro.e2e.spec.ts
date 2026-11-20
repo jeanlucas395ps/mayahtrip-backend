@@ -21,7 +21,7 @@ class MemoriaArmazenamento implements ArmazenamentoDeArquivo {
 describe('Financeiro (e2e, Postgres real)', () => {
   let app: INestApplication;
   let dados: DataSource;
-  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue({ entregue: true });
   const taxa = vi.fn<(base: string, alvo: string, data: string) => Promise<number | null>>();
 
   beforeAll(async () => {
@@ -46,7 +46,7 @@ describe('Financeiro (e2e, Postgres real)', () => {
 
   it('lê as dez moedas de exibição, a moeda ativa do gasto e as dez categorias', async () => {
     const email = `fin-${randomUUID()}@exemplo.com`;
-    expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
+    expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
     const codigo = enviarCodigoDeVerificacao.mock.calls.at(-1)?.[0].codigo as string;
     expect((await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo })).status).toBe(200);
     const login = await request(app.getHttpServer()).post('/v1/auth/sign-in').send({ email, senha: 'umaSenhaForte123' });
@@ -83,7 +83,7 @@ describe('Financeiro (e2e, Postgres real)', () => {
 
   it('grava a taxa do dia e não reescreve a mesma data', async () => {
     const email = `fx-${randomUUID()}@exemplo.com`;
-    expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
+    expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
     const codigo = enviarCodigoDeVerificacao.mock.calls.at(-1)?.[0].codigo as string;
     expect((await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo })).status).toBe(200);
     const login = await request(app.getHttpServer()).post('/v1/auth/sign-in').send({ email, senha: 'umaSenhaForte123' });

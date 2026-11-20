@@ -70,6 +70,21 @@ export interface LugarResumo {
   cityName: string | null;
 }
 
+export interface PaginaDeLugares {
+  items: LugarResumo[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Contexto para montar o path GCS de mídia do lugar. */
+export interface CaminhoMidiaDoLugar {
+  countryName: string | null;
+  cityName: string | null;
+  placeSlug: string;
+  placeName: string;
+}
+
 export interface LugarAdmin extends SalvarLugar {
   id: string;
   averageRating: number | null;
@@ -92,9 +107,18 @@ export interface SalvarCategoria {
 
 export type FalhaCatalogo = 'ausente' | 'slug' | 'cidade' | 'categoria' | 'referencia' | 'em_uso' | 'mesmo' | 'invalido';
 
+/** Busca read-only de cidades para o seletor do lugar (sem CRUD de geografia). */
+export interface CidadeResumoAdmin {
+  id: string;
+  name: string;
+  countryName: string | null;
+}
+
 export interface CatalogoAdminRepositorio {
-  listar(texto: string, status: StatusLugar | null): Promise<LugarResumo[]>;
+  listar(texto: string, status: StatusLugar | null, page: number, pageSize: number): Promise<PaginaDeLugares>;
+  buscarCidades(texto: string): Promise<CidadeResumoAdmin[]>;
   ficha(id: string): Promise<LugarAdmin | null>;
+  caminhoMidia(lugarId: string): Promise<CaminhoMidiaDoLugar | null>;
   salvar(id: string | null, entrada: SalvarLugar): Promise<LugarAdmin | FalhaCatalogo>;
   arquivar(id: string): Promise<LugarAdmin | 'ausente'>;
   unificar(destinoId: string, origemId: string): Promise<LugarAdmin | 'ausente' | 'mesmo'>;

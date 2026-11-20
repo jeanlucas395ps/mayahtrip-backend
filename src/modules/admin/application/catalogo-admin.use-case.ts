@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigType } from '@nestjs/config';
+import { storageConfig } from '../../../config/storage.config';
 import { ARMAZENAMENTO, ArmazenamentoDeArquivo } from '../../identidade/domain/ports/armazenamento.port';
 import {
   CATALOGO_ADMIN,
   CatalogoAdminRepositorio,
   CategoriaAdmin,
+  CidadeResumoAdmin,
   FalhaCatalogo,
   LugarAdmin,
-  LugarResumo,
+  PaginaDeLugares,
   SalvarCategoria,
   SalvarLugar,
   StatusLugar,
@@ -16,18 +19,29 @@ import {
 const IDIOMAS = ['pt-BR', 'pt-PT', 'en', 'es'] as const;
 const MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'video/mp4']);
 const LIMITE_BYTES = 10 * 1024 * 1024;
+const PAGE_SIZE = 10;
 
 @Injectable()
 export class CatalogoAdminUseCase {
   constructor(
     @Inject(CATALOGO_ADMIN) private readonly catalogo: CatalogoAdminRepositorio,
     @Inject(ARMAZENAMENTO) private readonly arquivos: ArmazenamentoDeArquivo,
+    @Inject(storageConfig.KEY) private readonly storage: ConfigType<typeof storageConfig>,
   ) {}
 
-  listar(texto: string | undefined, status: string | undefined): Promise<LugarResumo[] | 'invalido'> {
+  listar(
+    texto: string | undefined,
+    status: string | undefined,
+    pageBruta: string | undefined,
+  ): Promise<PaginaDeLugares | 'invalido'> {
     const filtro = status?.trim() ?? '';
     if (filtro && filtro !== 'active' && filtro !== 'archived') return Promise.resolve('invalido');
-    return this.catalogo.listar(texto?.trim().slice(0, 80) ?? '', filtro ? (filtro as StatusLugar) : null);
+    const page = Math.max(1, Number.parseInt(pageBruta ?? '1', 10) || 1);
+    return this.catalogo.listar(texto?.trim().slice(0, 80) ?? '', filtro ? (filtro as StatusLugar) : null, page, PAGE_SIZE);
+  }
+
+  buscarCidades(texto: string | undefined): Promise<CidadeResumoAdmin[]> {
+    return this.catalogo.buscarCidades(texto?.trim().slice(0, 80) ?? '');
   }
 
   ficha(id: string): Promise<LugarAdmin | null> {
@@ -76,12 +90,25 @@ export class CatalogoAdminUseCase {
     ordem: number | null,
   ): Promise<{ id: string; mediaType: 'photo' | 'video'; attribution: string | null; sortOrder: number | null } | 'ausente' | 'invalido'> {
     if (!MIMES.has(mime) || bytes.length === 0 || bytes.length > LIMITE_BYTES) return 'invalido';
+    const caminho = await this.catalogo.caminhoMidia(lugarId);
+    if (!caminho) return 'ausente';
+
     const tipo = mime === 'video/mp4' ? 'video' : 'photo';
-    const chave = `catalogo/${lugarId}/${randomUUID()}`;
-    await this.arquivos.guardar(chave, bytes, mime);
+    const ext = extensaoDe(mime);
+    const chave = [
+      'countries',
+      slugPath(caminho.countryName) || '_',
+      'cities',
+      slugPath(caminho.cityName) || '_',
+      slugPath(caminho.placeSlug || caminho.placeName) || lugarId,
+      `${randomUUID()}.${ext}`,
+    ].join('/');
+
+    const bucket = this.storage.bucketPlaces || this.storage.bucket;
+    await this.arquivos.guardar(chave, bytes, mime, { bucket });
     const gravada = await this.catalogo.adicionarMidia(lugarId, chave, tipo, atribuicao?.trim() || null, ordem);
     if (gravada === 'ausente') {
-      await this.arquivos.apagar(chave);
+      await this.arquivos.apagar(chave, { bucket });
       return 'ausente';
     }
     return { id: gravada.id, mediaType: tipo, attribution: atribuicao?.trim() || null, sortOrder: ordem };
@@ -90,9 +117,29 @@ export class CatalogoAdminUseCase {
   async removerMidia(lugarId: string, midiaId: string): Promise<'ok' | 'ausente'> {
     const removida = await this.catalogo.removerMidia(lugarId, midiaId);
     if (removida === 'ausente') return 'ausente';
-    await this.arquivos.apagar(removida.chave);
+    const bucket = this.storage.bucketPlaces || this.storage.bucket;
+    await this.arquivos.apagar(removida.chave, { bucket });
     return 'ok';
   }
+}
+
+function extensaoDe(mime: string): string {
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/webp') return 'webp';
+  if (mime === 'video/mp4') return 'mp4';
+  return 'jpg';
+}
+
+/** Segmento de path GCS a partir do nome (sem espaços/acentos). */
+function slugPath(valor: string | null | undefined): string {
+  const base = (valor ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return base;
 }
 
 function normalizarLugar(entrada: SalvarLugar): SalvarLugar | null {

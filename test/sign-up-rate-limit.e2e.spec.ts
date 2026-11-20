@@ -29,7 +29,7 @@ describe('Limite de taxa único (048)', () => {
   let app: INestApplication;
   let dados: DataSource;
   let metricas: MetricsService;
-  const enviar = vi.fn().mockResolvedValue(undefined);
+  const enviar = vi.fn().mockResolvedValue({ entregue: true });
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_LIMITE = '1';
@@ -55,7 +55,7 @@ describe('Limite de taxa único (048)', () => {
     const email = `limite-${randomUUID()}@exemplo.com`;
     const cadastro = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome: 'Pessoa', email, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({ nome: 'Pessoa', usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true });
     expect(cadastro.status).toBe(202);
 
     const confirmacao = await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo: '0000' });

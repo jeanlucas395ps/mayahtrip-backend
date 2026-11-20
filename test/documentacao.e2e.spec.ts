@@ -12,6 +12,7 @@ import {
   montarDocumentacao,
   operacoesDoDocumento,
 } from '../src/common/docs/documentacao';
+import { lerContrato } from '../src/common/docs/ler-contrato';
 
 @Controller('somente-no-teste')
 class RotaSomenteNoTesteController {
@@ -77,6 +78,17 @@ describe('Swagger e ReadMe (049, 050)', () => {
       for (const operacao of operacoes) {
         expect(readme.text).toContain(operacao);
       }
+
+      const contrato = lerContrato();
+      const deProduto = operacoes.filter((operacao) => !operacao.includes('somente-no-teste'));
+      expect(deProduto.every((operacao) => contrato.has(operacao))).toBe(true);
+      const cadastro = json.body.paths['/v1/auth/sign-up'].post;
+      expect(cadastro.description).toContain('Digite seu nome.');
+      expect(cadastro.requestBody.content['application/json'].example.aceitouTermos).toBe(true);
+      expect(cadastro.responses['202'].content['application/json'].example.mensagem).toContain('código de verificação');
+      expect(cadastro.responses['429'].description).toContain('Limite de taxa excedido.');
+      expect(readme.text).toContain('código de verificação');
+      expect(readme.text).toContain('http_request_duration_seconds');
     });
   });
 

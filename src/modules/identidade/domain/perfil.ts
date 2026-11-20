@@ -1,3 +1,5 @@
+import { Username, UsernameInvalidoError } from './value-objects/username.vo';
+
 export type VisibilidadeDoPerfil = 'public' | 'private';
 
 export type MotivoDePerfilInvalido = 'username' | 'bio' | 'nome' | 'cidade';
@@ -32,9 +34,8 @@ export interface EdicaoDePerfil {
 const LIMITE_NOME = 120;
 const LIMITE_BIO = 150;
 const LIMITE_CIDADE = 150;
-const LIMITE_USERNAME = 80;
 
-/** BUSINESS/34: vazio mantém o anterior. O @ inicial não entra no username. */
+/** BUSINESS/34 + cadastro: vazio mantém o anterior. O @ inicial não entra no username. */
 export function aplicarEdicao(atual: PerfilGravado, edicao: EdicaoDePerfil): PerfilGravado {
   return {
     ...atual,
@@ -50,10 +51,12 @@ export function aplicarEdicao(atual: PerfilGravado, edicao: EdicaoDePerfil): Per
 export function normalizarUsername(bruto: string): string | null {
   const semArroba = bruto.trim().replace(/^@+/, '');
   if (semArroba.length === 0) return null;
-  if (semArroba.length > LIMITE_USERNAME || !/^[\p{L}\p{N}._-]+$/u.test(semArroba)) {
-    throw new PerfilInvalidoError('username');
+  try {
+    return new Username(semArroba).valor;
+  } catch (erro) {
+    if (erro instanceof UsernameInvalidoError) throw new PerfilInvalidoError('username');
+    throw erro;
   }
-  return semArroba;
 }
 
 function usernameOuAtual(bruto: string | undefined, atual: string): string {

@@ -37,4 +37,5 @@ export const validationSchema = Joi.object({
   README_API_KEY: Joi.string().allow('').optional(),
 
   GCS_BUCKET: Joi.string().allow('').default(''),
+  GCS_BUCKET_PLACES: Joi.string().allow('').default(''),
 });

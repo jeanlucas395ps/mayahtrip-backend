@@ -17,7 +17,7 @@ import { Senha, SenhaInvalidaError } from '../../domain/value-objects/senha.vo';
 import { SessaoDeAcesso } from '../sessao-de-acesso';
 import { CODIGO_TTL_MINUTOS } from './criar-conta.use-case';
 
-export type ResultadoPedidoSenha = { tipo: 'enviado' } | { tipo: 'cedo' };
+export type ResultadoPedidoSenha = { tipo: 'enviado'; codigoDev?: string } | { tipo: 'cedo' };
 
 export type ResultadoCodigoSenha =
   | { tipo: 'aceito' }
@@ -83,13 +83,13 @@ async function emitir(
   const codigo = CodigoVerificacao.gerar(agora, deps.codigoTtlMinutos);
   const recuperacao = RecuperacaoDeSenha.abrir(randomUUID(), codigo);
   await deps.codigos.abrir(conta.id, recuperacao);
-  await deps.remetente.enviarCodigoDeVerificacao({
+  const envio = await deps.remetente.enviarCodigoDeVerificacao({
     paraEmail: conta.email.valor,
     nome: conta.nome,
     codigo: codigo.valor,
     idioma: new Idioma(idiomaTexto),
   });
-  return { tipo: 'enviado' };
+  return { tipo: 'enviado', codigoDev: envio.codigoDev };
 }
 
 @Injectable()

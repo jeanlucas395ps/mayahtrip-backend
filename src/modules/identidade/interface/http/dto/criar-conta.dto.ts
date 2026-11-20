@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { Equals, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { Equals, IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Ordem e mensagens de `BUSINESS/02-cadastro-e-verificacao.md` §Validações
@@ -12,6 +12,15 @@ export class CriarContaDto {
   @MinLength(1, { message: 'Digite seu nome.' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   nome!: string;
+
+  @IsString({ message: 'Digite um usuário.' })
+  @MinLength(1, { message: 'Digite um usuário.' })
+  @MaxLength(80, { message: 'Use letras, números e # . _ - $ & (sem espaços).' })
+  @Matches(/^@?[\p{L}\p{N}#._$&-]+$/u, {
+    message: 'Use letras, números e # . _ - $ & (sem espaços).',
+  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().replace(/^@+/, '') : value))
+  usuario!: string;
 
   @IsEmail({}, { message: 'Digite um e-mail válido.' })
   email!: string;

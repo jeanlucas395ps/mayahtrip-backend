@@ -30,7 +30,7 @@ describe('Perfil (e2e, Postgres real)', () => {
   let app: INestApplication;
   let dados: DataSource;
   const armazenamento = new MemoriaArmazenamento();
-  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue({ entregue: true });
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_LIMITE = '1000';
@@ -55,7 +55,7 @@ describe('Perfil (e2e, Postgres real)', () => {
     const email = `perfil-${randomUUID()}@exemplo.com`;
     const cadastro = await request(app.getHttpServer())
       .post('/v1/auth/sign-up')
-      .send({ nome, email, senha: 'umaSenhaForte123', aceitouTermos: true });
+      .send({ nome, usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true });
     expect(cadastro.status).toBe(202);
     const codigo = enviarCodigoDeVerificacao.mock.calls.at(-1)?.[0].codigo as string;
     expect((await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo })).status).toBe(200);

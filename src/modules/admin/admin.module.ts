@@ -1,9 +1,10 @@
 import { Module, OnModuleInit, Logger, Inject } from '@nestjs/common';
-import { ConfigType } from '@nestjs/config';
+import { ConfigModule, ConfigType } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { DataSource } from 'typeorm';
 import { authConfig } from '../../config/auth.config';
+import { storageConfig } from '../../config/storage.config';
 import { IdentidadeModule } from '../identidade/identidade.module';
 import { NotificacaoModule } from '../notificacao/notificacao.module';
 import { CatalogoAdminUseCase } from './application/catalogo-admin.use-case';
@@ -42,6 +43,7 @@ import { AdminGuard } from './interface/http/guards/admin.guard';
   imports: [
     IdentidadeModule,
     NotificacaoModule,
+    ConfigModule.forFeature(storageConfig),
     JwtModule.registerAsync({
       inject: [authConfig.KEY],
       useFactory: (config: ConfigType<typeof authConfig>) => ({

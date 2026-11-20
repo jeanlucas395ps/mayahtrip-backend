@@ -1,6 +1,23 @@
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 
 const IDIOMAS = ['pt-BR', 'pt-PT', 'en', 'es'] as const;
+
+/** Query de `GET /v1/auth/email-availability`. */
+export class VerificarEmailQueryDto {
+  @IsEmail({}, { message: 'Digite um e-mail válido.' })
+  email!: string;
+}
+
+/** Query de `GET /v1/auth/username-availability`. */
+export class VerificarUsernameQueryDto {
+  @IsString({ message: 'Digite um usuário.' })
+  @MinLength(1, { message: 'Digite um usuário.' })
+  @MaxLength(80, { message: 'Use letras, números e # . _ - $ & (sem espaços).' })
+  @Matches(/^@?[\p{L}\p{N}#._$&-]+$/u, {
+    message: 'Use letras, números e # . _ - $ & (sem espaços).',
+  })
+  usuario!: string;
+}
 
 export class ConfirmarContaDto {
   @IsEmail({}, { message: 'Digite um e-mail válido.' })

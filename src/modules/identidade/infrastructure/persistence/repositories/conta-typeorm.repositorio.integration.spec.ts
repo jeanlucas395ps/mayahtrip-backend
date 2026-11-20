@@ -46,6 +46,7 @@ describe('ContaTypeOrmRepositorio (integração, Postgres real)', () => {
       id: randomUUID(),
       nome: 'Pessoa de Teste',
       email,
+      username: 'pessoa.teste',
       hashSenha: 'hash-nao-interessa-neste-teste',
       codigoVerificacao: codigo,
       criadaEm: agora,

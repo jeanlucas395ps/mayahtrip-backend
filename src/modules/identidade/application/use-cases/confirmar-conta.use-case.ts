@@ -41,7 +41,7 @@ export class ConfirmarContaUseCase {
   }
 }
 
-export type ResultadoReenviarCodigo = { tipo: 'enviado' } | { tipo: 'cedo' };
+export type ResultadoReenviarCodigo = { tipo: 'enviado'; codigoDev?: string } | { tipo: 'cedo' };
 
 @Injectable()
 export class ReenviarCodigoUseCase {
@@ -67,14 +67,14 @@ export class ReenviarCodigoUseCase {
     }
 
     await this.repositorio.salvar(conta);
-    await this.remetente.enviarCodigoDeVerificacao({
+    const envio = await this.remetente.enviarCodigoDeVerificacao({
       paraEmail: conta.email.valor,
       nome: conta.nome,
       codigo: novoCodigo.valor,
       idioma,
     });
 
-    return { tipo: 'enviado' };
+    return { tipo: 'enviado', codigoDev: envio.codigoDev };
   }
 }
 

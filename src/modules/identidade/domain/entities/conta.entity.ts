@@ -17,6 +17,7 @@ interface CriarPendenteParams {
   id: string;
   nome: string;
   email: Email;
+  username: string;
   hashSenha: string;
   codigoVerificacao: CodigoVerificacao;
   criadaEm: Date;
@@ -34,6 +35,7 @@ interface ReconstituirParams {
   id: string;
   nome: string;
   email: Email;
+  username: string | null;
   hashSenha: string | null;
   codigoVerificacao: CodigoVerificacao | null;
   estado: EstadoConta;
@@ -52,6 +54,7 @@ export class Conta {
     readonly id: string,
     private nomeInterno: string,
     private emailInterno: Email,
+    private usernameInterno: string | null,
     private hashSenha: string | null,
     private codigo: CodigoVerificacao | null,
     private estadoInterno: EstadoConta,
@@ -67,6 +70,11 @@ export class Conta {
 
   get email(): Email {
     return this.emailInterno;
+  }
+
+  /** Handle público; null em contas Google até a persistência gerar um. */
+  get username(): string | null {
+    return this.usernameInterno;
   }
 
   get estado(): EstadoConta {
@@ -94,6 +102,7 @@ export class Conta {
       params.id,
       params.nome,
       params.email,
+      params.username,
       params.hashSenha,
       params.codigoVerificacao,
       'pendente',
@@ -112,6 +121,7 @@ export class Conta {
       params.email,
       null,
       null,
+      null,
       'confirmada',
       params.criadaEm,
       0,
@@ -125,6 +135,7 @@ export class Conta {
       params.id,
       params.nome,
       params.email,
+      params.username,
       params.hashSenha,
       params.codigoVerificacao,
       params.estado,
@@ -133,6 +144,14 @@ export class Conta {
       params.googleSub,
       params.origem,
     );
+  }
+
+  /** Atualiza nome/usuário/senha ao reenviar cadastro de conta ainda pendente. */
+  atualizarCadastroPendente(params: { nome: string; username: string; hashSenha: string }): void {
+    if (this.estadoInterno !== 'pendente') return;
+    this.nomeInterno = params.nome;
+    this.usernameInterno = params.username;
+    this.hashSenha = params.hashSenha;
   }
 
   /** Liga um Google ID a uma conta que já existia pelo e-mail. */
@@ -205,6 +224,7 @@ export class Conta {
       id: this.id,
       nome: this.nomeInterno,
       email: this.emailInterno.valor,
+      username: this.usernameInterno,
       estado: this.estadoInterno,
       criadaEm: this.criadaEm,
       origem: this.origem,

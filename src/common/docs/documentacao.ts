@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { ModulesContainer } from '@nestjs/core';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { aplicarContrato, htmlDoContrato } from './aplicar-contrato';
 import { VERSAO_URI } from '../http/preparar-aplicacao';
 
 /**
@@ -32,10 +33,12 @@ export function montarDocumentacao(app: INestApplication): void {
     app,
     new DocumentBuilder()
       .setTitle('MayahTrip API')
-      .setDescription('Rotas HTTP implementadas. Esta visualização só existe em local e em teste.')
+      .setDescription('Contrato das rotas implementadas: corpo, resposta e status que o código devolve. Esta visualização só existe em local e em teste.')
       .setVersion('1.0.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'bearer')
       .build(),
   );
+  aplicarContrato(documento);
 
   SwaggerModule.setup(CAMINHO_SWAGGER, app, documento, {
     jsonDocumentUrl: CAMINHO_SWAGGER_JSON,
@@ -46,7 +49,7 @@ export function montarDocumentacao(app: INestApplication): void {
   };
   http.get(`/${CAMINHO_README}`, (_req, res) => {
     res.type('html');
-    res.send(htmlReadme(operacoesDoDocumento(documento)));
+    res.send(htmlDoContrato(operacoesDoDocumento(documento)));
   });
 
   const chave = config.get<string>('readme.apiKey') ?? '';

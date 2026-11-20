@@ -14,6 +14,7 @@ interface LinhaConta {
   status: 'pending' | 'active' | 'inactive';
   created_at: Date;
   display_name: string | null;
+  username: string | null;
   code_hash: string | null;
   last_sent_at: Date | null;
   attempts: number | null;
@@ -54,7 +55,7 @@ export class ContaTypeOrmRepositorio implements ContaRepositorio {
   async salvar(conta: Conta): Promise<Conta> {
     const codigo = conta.codigoVerificacao;
     const status = conta.estado === 'confirmada' ? 'active' : 'pending';
-    const username = usernameDe(conta.email.valor, conta.id);
+    const username = conta.username ?? usernameDe(conta.email.valor, conta.id);
 
     await this.dados.transaction(async (tx) => {
       await tx.query(
@@ -71,7 +72,10 @@ export class ContaTypeOrmRepositorio implements ContaRepositorio {
       await tx.query(
         `INSERT INTO identity.user_profiles (user_id, display_name, username)
          VALUES ($1, $2, $3)
-         ON CONFLICT (user_id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = now()`,
+         ON CONFLICT (user_id) DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           username = EXCLUDED.username,
+           updated_at = now()`,
         [conta.id, conta.nome.slice(0, 120), username],
       );
       await tx.query(
@@ -114,7 +118,7 @@ export class ContaTypeOrmRepositorio implements ContaRepositorio {
 
 const consulta = `
   SELECT u.id, u.email, u.password_hash, u.status, u.created_at,
-         p.display_name,
+         p.display_name, p.username,
          c.code_hash, c.last_sent_at, c.attempts,
          g.provider_user_id
   FROM identity.users u
@@ -139,6 +143,7 @@ function paraDominio(linha: LinhaConta): Conta {
     id: linha.id,
     nome: linha.display_name ?? linha.email,
     email: new Email(linha.email),
+    username: linha.username,
     hashSenha: linha.password_hash,
     codigoVerificacao: codigo,
     estado: linha.status === 'active' ? 'confirmada' : 'pendente',

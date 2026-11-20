@@ -2,10 +2,10 @@ import { LocaleOficial } from '../../domain/value-objects/idioma.vo';
 
 const MENSAGENS = {
   username: {
-    'pt-BR': 'Use letras, números, ponto, underline ou hífen.',
-    'pt-PT': 'Use letras, números, ponto, underline ou hífen.',
-    en: 'Use letters, numbers, dot, underscore or hyphen.',
-    es: 'Usa letras, números, punto, guion bajo o guion.',
+    'pt-BR': 'Use letras, números e # . _ - $ & (sem espaços).',
+    'pt-PT': 'Use letras, números e # . _ - $ & (sem espaços).',
+    en: 'Use letters, numbers and # . _ - $ & (no spaces).',
+    es: 'Usa letras, números y # . _ - $ & (sin espacios).',
   },
   usernameEmUso: {
     'pt-BR': 'Esse usuário já está em uso.',

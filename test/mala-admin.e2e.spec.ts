@@ -26,7 +26,7 @@ describe('Catálogo da mala (e2e, Postgres real)', () => {
     process.env.RATE_LIMIT_LIMITE = '1000';
     const modulo = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(REMETENTE_DE_EMAIL)
-      .useValue({ enviarCodigoDeVerificacao: vi.fn(), enviarConvite: vi.fn() })
+      .useValue({ enviarCodigoDeVerificacao: vi.fn().mockResolvedValue({ entregue: true }), enviarConvite: vi.fn() })
       .overrideProvider(ARMAZENAMENTO)
       .useValue(new MemoriaArmazenamento())
       .compile();

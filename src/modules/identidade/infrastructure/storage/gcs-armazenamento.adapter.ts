@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { Storage } from '@google-cloud/storage';
 import { storageConfig } from '../../../../config/storage.config';
-import { ArmazenamentoDeArquivo } from '../../domain/ports/armazenamento.port';
+import { ArmazenamentoDeArquivo, OpcoesDeArmazenamento } from '../../domain/ports/armazenamento.port';
 
 @Injectable()
 export class GcsArmazenamento implements ArmazenamentoDeArquivo {
@@ -10,12 +10,12 @@ export class GcsArmazenamento implements ArmazenamentoDeArquivo {
 
   constructor(@Inject(storageConfig.KEY) private readonly config: ConfigType<typeof storageConfig>) {}
 
-  async guardar(chave: string, bytes: Buffer, mime: string): Promise<void> {
-    await this.arquivo(chave).save(bytes, { contentType: mime, resumable: false });
+  async guardar(chave: string, bytes: Buffer, mime: string, opcoes?: OpcoesDeArmazenamento): Promise<void> {
+    await this.arquivo(chave, opcoes).save(bytes, { contentType: mime, resumable: false });
   }
 
-  async ler(chave: string): Promise<{ bytes: Buffer; mime: string } | null> {
-    const arquivo = this.arquivo(chave);
+  async ler(chave: string, opcoes?: OpcoesDeArmazenamento): Promise<{ bytes: Buffer; mime: string } | null> {
+    const arquivo = this.arquivo(chave, opcoes);
     const [existe] = await arquivo.exists();
     if (!existe) return null;
     const [bytes] = await arquivo.download();
@@ -23,15 +23,16 @@ export class GcsArmazenamento implements ArmazenamentoDeArquivo {
     return { bytes, mime: meta.contentType ?? 'application/octet-stream' };
   }
 
-  async apagar(chave: string): Promise<void> {
-    await this.arquivo(chave).delete({ ignoreNotFound: true });
+  async apagar(chave: string, opcoes?: OpcoesDeArmazenamento): Promise<void> {
+    await this.arquivo(chave, opcoes).delete({ ignoreNotFound: true });
   }
 
-  private arquivo(chave: string) {
-    if (!this.config.bucket) {
-      throw new Error('GCS_BUCKET vazio');
+  private arquivo(chave: string, opcoes?: OpcoesDeArmazenamento) {
+    const bucket = (opcoes?.bucket || this.config.bucket || '').trim();
+    if (!bucket) {
+      throw new Error('GCS_BUCKET / GCS_BUCKET_PLACES vazio');
     }
     this.cliente ??= new Storage();
-    return this.cliente.bucket(this.config.bucket).file(chave);
+    return this.cliente.bucket(bucket).file(chave);
   }
 }

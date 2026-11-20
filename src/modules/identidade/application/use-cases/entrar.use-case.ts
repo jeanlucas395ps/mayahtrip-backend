@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Conta } from '../../domain/entities/conta.entity';
 import { CONTA_REPOSITORIO, ContaRepositorio } from '../../domain/ports/conta-repositorio.port';
 import { HASH_DE_SENHA, HashDeSenha } from '../../domain/ports/hash-de-senha.port';
@@ -36,6 +36,8 @@ export class EntrarComSenhaUseCase {
 
 @Injectable()
 export class EntrarComGoogleUseCase {
+  private readonly logger = new Logger(EntrarComGoogleUseCase.name);
+
   constructor(
     @Inject(CONTA_REPOSITORIO) private readonly repositorio: ContaRepositorio,
     @Inject(VALIDADOR_TOKEN_GOOGLE) private readonly validador: ValidadorTokenGoogle,
@@ -46,6 +48,7 @@ export class EntrarComGoogleUseCase {
   async executar(token: string, manterConectado: boolean): Promise<ResultadoEntrar> {
     const perfil = await this.validador.validar(token);
     if (!perfil) {
+      this.logger.warn('Google recusado: token inválido ou audiência/e-mail não conferem');
       return { tipo: 'recusado' };
     }
 
@@ -55,6 +58,7 @@ export class EntrarComGoogleUseCase {
 
     let conta = porEmail;
     if (!conta) {
+      // Conta nova: sem senha, já confirmada (Google provou o e-mail).
       conta = Conta.criarPorGoogle({
         id: randomUUID(),
         nome: perfil.nome,
@@ -62,8 +66,10 @@ export class EntrarComGoogleUseCase {
         googleSub: perfil.sub,
         criadaEm: this.relogio.agora(),
       });
+      this.logger.log(`Google: criando conta confirmada para ${perfil.email}`);
     } else {
       conta.confirmarPorGoogle(perfil.sub);
+      this.logger.log(`Google: vinculando/confirmando conta existente ${perfil.email}`);
     }
 
     await this.repositorio.salvar(conta);

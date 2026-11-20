@@ -27,7 +27,7 @@ describe('Catálogo no painel (e2e, Postgres real)', () => {
   let app: INestApplication;
   let dados: DataSource;
   const armazenamento = new MemoriaArmazenamento();
-  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue(undefined);
+  const enviarCodigoDeVerificacao = vi.fn().mockResolvedValue({ entregue: true });
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_LIMITE = '1000';
@@ -126,8 +126,9 @@ describe('Catálogo no painel (e2e, Postgres real)', () => {
     const arquivado = await request(app.getHttpServer()).post(`/v1/admin/places/${lugarId}/archive`).set(auth);
     expect(arquivado.body.status).toBe('archived');
     expect((await request(app.getHttpServer()).get(`/v1/catalog/places/${lugarId}`).set({ Authorization: `Bearer ${viajante}` })).status).toBe(404);
-    const lista = await request(app.getHttpServer()).get('/v1/admin/places').query({ q: marca, status: 'archived' }).set(auth);
-    expect(lista.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: lugarId, status: 'archived' })]));
+    const lista = await request(app.getHttpServer()).get('/v1/admin/places').query({ q: marca, status: 'archived', page: '1' }).set(auth);
+    expect(lista.body).toMatchObject({ page: 1, pageSize: 10, total: expect.any(Number) });
+    expect(lista.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: lugarId, status: 'archived' })]));
 
     expect((await request(app.getHttpServer()).delete(`/v1/admin/place-categories/${categoria.body.id}`).set(auth)).status).toBe(409);
     expect((await request(app.getHttpServer()).delete(`/v1/admin/place-categories/${solta.body.id}`).set(auth)).status).toBe(204);
@@ -195,7 +196,7 @@ async function criarAdmin(dados: DataSource): Promise<{ email: string; senha: st
 
 async function entrar(app: INestApplication, enviar: ReturnType<typeof vi.fn>): Promise<string> {
   const email = `cat-admin-${randomUUID()}@exemplo.com`;
-  expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
+  expect((await request(app.getHttpServer()).post('/v1/auth/sign-up').send({ nome: 'Pessoa E2E', usuario: email.split('@')[0].replace(/[^a-zA-Z0-9._$#&-]+/g, '').slice(0, 60) || 'viajante', email, senha: 'umaSenhaForte123', aceitouTermos: true })).status).toBe(202);
   const codigo = enviar.mock.calls.at(-1)?.[0].codigo as string;
   expect((await request(app.getHttpServer()).post('/v1/auth/confirm').send({ email, codigo })).status).toBe(200);
   const login = await request(app.getHttpServer()).post('/v1/auth/sign-in').send({ email, senha: 'umaSenhaForte123' });

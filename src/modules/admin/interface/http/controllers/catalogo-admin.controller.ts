@@ -37,10 +37,16 @@ export class CatalogoAdminController {
   ) {}
 
   @Get('places')
-  async listar(@Query('q') q?: string, @Query('status') status?: string) {
-    const lista = await this.catalogo.listar(q, status);
+  async listar(@Query('q') q?: string, @Query('status') status?: string, @Query('page') page?: string) {
+    const lista = await this.catalogo.listar(q, status, page);
     if (lista === 'invalido') throw new HttpException({ message: 'Filtro inválido.' }, HttpStatus.BAD_REQUEST);
     return lista;
+  }
+
+  /** Busca read-only para o seletor de cidade do lugar. */
+  @Get('cities')
+  cidades(@Query('q') q?: string) {
+    return this.catalogo.buscarCidades(q);
   }
 
   @Post('places')
